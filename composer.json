@@ -1,0 +1,18 @@
+{
+    "name": "miksaraj/chatgpt-context-tool",
+    "description": "CLI tool to parse, categorise, and package ChatGPT exports for LLM context consumption",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "symfony/console": "^7.0",
+        "symfony/finder": "^7.0",
+        "symfony/dotenv": "^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "ChatGPTContext\\": "src/"
+        }
+    },
+    "bin": ["bin/ctx"]
+}

@@ -1,0 +1,8 @@
+/vendor/
+/output/
+/input/
+.env
+categories.json
+.ctx-state.json
+*.cache
+/.idea/

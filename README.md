@@ -1,0 +1,221 @@
+# ChatGPT Context Tool
+
+CLI tool to parse, categorise, and package ChatGPT exports for LLM context consumption. Built for processing 500+ conversation exports into structured, reviewable context packages.
+
+## Requirements
+
+- PHP 8.2+
+- Composer
+- Ollama (optional but recommended for semantic categorisation)
+
+## Installation
+
+```bash
+cd chatgpt-context-tool
+composer install
+chmod +x bin/ctx
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust as needed. You can also override most settings via CLI flags.
+
+### Categories
+
+The tool needs to know what categories to organise your conversations into. These are stored in a `categories.json` file in the project root (this file is `.gitignored` so your personal taxonomy never ends up in source control).
+
+To get started, copy the example and customise it:
+
+```bash
+cp categories.json.example categories.json
+```
+
+Each entry in `categories.json` has a **slug**, **name**, **description** (used in the LLM prompt), and **keywords** (for keyword-only fallback):
+
+```json
+[
+  {
+    "slug": "software-dev",
+    "name": "Software Development",
+    "description": "Programming, debugging, architecture, code reviews, CI/CD, and tooling.",
+    "keywords": ["code", "api", "debug", "deploy", "git"]
+  }
+]
+```
+
+If you have no idea what categories you need yet, skip creating `categories.json` and run `explore` first — with no file present it automatically enters free mode and lets the LLM discover a taxonomy from your conversations.
+
+Ollama connection settings and processing parameters live in `config/config.php` and can be overridden via `.env` variables.
+
+### Ollama Model Selection
+
+The tool is model-agnostic. Recommended choices:
+
+| Model | Best for | Notes |
+|-------|----------|-------|
+| `deepseek-r1` | Highest quality categorisation | Slower, strong reasoning |
+| `qwen3` | Good balance of speed/quality | Works well on Linux |
+| `qwen3.5` | macOS-friendly alternative | Good general performance |
+| `atla/selene-mini` | Fast iteration, testing | Lightweight |
+
+Override at runtime: `./bin/ctx categorise conversations.json -m qwen3`
+
+## Workflow
+
+The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → stats**
+
+### 1. Parse the export
+
+```bash
+./bin/ctx parse /path/to/conversations.json
+```
+
+Reads the ChatGPT export, filters out trivially short conversations, and creates a `parsed-index.json`.
+
+### 2. Explore categories
+
+Before categorising, let the LLM discover what topics actually exist in your conversations. This avoids forcing everything into pre-defined categories and missing important clusters.
+
+```bash
+# Point at a single file or a whole directory of *.json exports
+./bin/ctx explore input/
+./bin/ctx explore /path/to/conversations.json
+
+# Free mode: let the LLM build a taxonomy from scratch (no predefined categories)
+./bin/ctx explore input/ --free
+
+# Sample more conversations for coverage (-s 0 = all)
+./bin/ctx explore input/ -s 100
+
+# Skip the consolidation pass — accumulate results, consolidate later
+./bin/ctx explore input/ --no-consolidate
+
+# Re-run after a partial failure — results are MERGED into the existing report
+./bin/ctx explore input/ --no-consolidate
+
+# Consolidate already-discovered categories without re-running exploration
+./bin/ctx explore --consolidate-only
+
+# Jump straight to the interactive review without re-running exploration or consolidation
+./bin/ctx explore --apply-only --apply
+
+# Consolidate then immediately review
+./bin/ctx explore --consolidate-only --apply
+
+# Tune for speed on long conversations
+./bin/ctx explore input/ --max-chars 400
+
+# Tune for reasoning models
+./bin/ctx explore input/ --max-tokens 8192
+```
+
+The explorer uses stratified sampling across the full time range, batches conversations for efficient LLM calls, and aggregates suggestions — if a topic surfaces repeatedly it gets a high count, indicating a real cluster rather than noise.
+
+Each run **merges** its results into `output/category-discovery.json` rather than overwriting it, so you can safely re-run after partial failures to pick up missed batches.
+
+After all batches finish, a **consolidation pass** asks the LLM to merge overlapping candidates into a clean, non-overlapping taxonomy.
+
+With `--apply`, you can interactively review each discovered category:
+- **Add** — add it to `categories.json` (immediately saved; also becomes a merge target for later items in the same session)
+- **Merge** — pick a target category; the source's keywords are automatically appended to the target's keyword list in `categories.json`
+- **Skip** — ignore for now
+- **Back** — revisit the previous decision
+- **Done** — stop reviewing early
+
+A discovery report is always saved to `output/category-discovery.json`.
+
+#### Recommended settings for reasoning models (deepseek-r1, qwen)
+
+Reasoning models emit a lengthy `<think>` block before producing output. With long conversations this can exhaust the token budget before any JSON appears.
+
+```
+--batch-size 3 --max-chars 600 --max-tokens 4096
+```
+
+Set `OLLAMA_TIMEOUT` in `.env` to at least `300` (seconds) per batch.
+
+### 3. Categorise conversations
+
+```bash
+# With Ollama (recommended)
+./bin/ctx categorise /path/to/conversations.json
+
+# With a specific model
+./bin/ctx categorise /path/to/conversations.json -m qwen3
+
+# Keyword-only (no Ollama needed)
+./bin/ctx categorise /path/to/conversations.json --keywords-only
+
+# Test with a small batch first
+./bin/ctx categorise /path/to/conversations.json -l 10
+```
+
+Categorisation state is persisted — if interrupted, re-running will resume from where it left off. Use `--reset` to start fresh.
+
+### 4. Review and correct
+
+```bash
+# Review all
+./bin/ctx review /path/to/conversations.json
+
+# Review a specific category
+./bin/ctx review /path/to/conversations.json -c software-dev
+
+# Review only high-relevance conversations
+./bin/ctx review /path/to/conversations.json --min-relevance 0.7
+```
+
+Interactive review lets you adjust categories, relevance scores, or mark conversations as irrelevant.
+
+### 5. Export
+
+```bash
+# Standard export (JSON + Markdown per category)
+./bin/ctx export /path/to/conversations.json
+
+# Export only one category
+./bin/ctx export /path/to/conversations.json -c software-dev
+
+# Generate LLM-optimised context packages
+./bin/ctx export /path/to/conversations.json --context-package
+
+# Context package with minimum relevance threshold
+./bin/ctx export /path/to/conversations.json --context-package --min-relevance 0.5 -c software-dev
+```
+
+### 6. View statistics
+
+```bash
+./bin/ctx stats /path/to/conversations.json
+```
+
+## Output Structure
+
+```
+output/
+├── index.json                    # Master index with category stats
+├── parsed-index.json             # Raw parse results
+├── category-discovery.json       # Explore results (discovered categories)
+├── .ctx-state.json               # Processing state (for resume)
+├── software-dev.json             # Category: JSON format
+├── software-dev.md               # Category: Markdown for review
+├── creative-writing.json
+├── creative-writing.md
+├── context-software-dev.md       # LLM context package (--context-package)
+└── ...
+```
+
+### Context Packages
+
+The `--context-package` flag generates markdown files optimised for pasting into an LLM conversation. These contain:
+
+- Conversation summaries sorted by relevance
+- Key facts and decisions extracted from each conversation
+- Tags for quick scanning
+- No raw message content (just the distilled context)
+
+These are designed to be reviewed by you, corrected if needed, and then fed to Claude as context for continuity.
+
+## Categories
+
+Categories are defined in your local `categories.json` file (not tracked by git). See `categories.json.example` for the schema. Use `./bin/ctx explore --free --apply` to let the LLM discover a starting taxonomy for you.

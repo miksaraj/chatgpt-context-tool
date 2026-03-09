@@ -1,0 +1,29 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+// Load .env so OLLAMA_TIMEOUT, OLLAMA_HOST, OLLAMA_MODEL, etc. are available
+// via the env() helper in config/config.php.
+(new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->bootEnv(__DIR__ . '/../.env');
+
+use ChatGPTContext\Command\ParseCommand;
+use ChatGPTContext\Command\CategoriseCommand;
+use ChatGPTContext\Command\ExploreCommand;
+use ChatGPTContext\Command\ReviewCommand;
+use ChatGPTContext\Command\ExportCommand;
+use ChatGPTContext\Command\StatsCommand;
+use Symfony\Component\Console\Application;
+
+$app = new Application('ChatGPT Context Tool', '0.1.0');
+
+$app->add(new ParseCommand());
+$app->add(new ExploreCommand());
+$app->add(new CategoriseCommand());
+$app->add(new ReviewCommand());
+$app->add(new ExportCommand());
+$app->add(new StatsCommand());
+
+$app->run();

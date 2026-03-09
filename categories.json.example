@@ -1,0 +1,20 @@
+[
+  {
+    "slug": "software-dev",
+    "name": "Software Development",
+    "description": "Programming, debugging, architecture, code reviews, CI/CD pipelines, developer tooling, and software design patterns.",
+    "keywords": ["code", "programming", "debug", "deploy", "api", "database", "git", "refactor", "testing"]
+  },
+  {
+    "slug": "creative-writing",
+    "name": "Creative Writing",
+    "description": "Fiction, non-fiction, essays, storytelling, world-building, character development, and editing feedback.",
+    "keywords": ["writing", "story", "essay", "fiction", "draft", "edit", "prose", "novel", "chapter"]
+  },
+  {
+    "slug": "career",
+    "name": "Career & Professional Development",
+    "description": "Job searching, interviews, career planning, skill development, performance reviews, and workplace topics.",
+    "keywords": ["job", "interview", "resume", "cv", "career", "salary", "promotion", "workplace", "manager"]
+  }
+]
