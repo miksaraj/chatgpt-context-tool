@@ -21,7 +21,7 @@ final class ExploreCommand extends Command
 	protected function configure(): void
 	{
 		$this
-			->addArgument('input', InputArgument::OPTIONAL, 'Path to a conversations.json file, or a directory (not needed with --consolidate-only / --apply-only)')
+			->addArgument('input', InputArgument::OPTIONAL, 'Path to a conversations.json file, or a directory (not needed with --apply-only)')
 			->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output directory', './output')
 			->addOption('model', 'm', InputOption::VALUE_REQUIRED, 'Ollama model to use (overrides config)')
 			->addOption('host', null, InputOption::VALUE_REQUIRED, 'Ollama host URL', 'http://localhost:11434')
@@ -32,27 +32,23 @@ final class ExploreCommand extends Command
 			->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Max tokens for LLM output (overrides config; increase for reasoning models)')
 			->addOption('apply', null, InputOption::VALUE_NONE, 'Interactively add discovered categories to categories.json')
 			->addOption('free', null, InputOption::VALUE_NONE, 'Ignore predefined categories — let the LLM suggest a taxonomy from scratch')
-			->addOption('no-consolidate', null, InputOption::VALUE_NONE, 'Skip the post-batch consolidation pass (useful when building up results gradually)')
-			->addOption('consolidate-only', null, InputOption::VALUE_NONE, 'Skip exploration — consolidate the existing category-discovery.json and exit')
-			->addOption('apply-only', null, InputOption::VALUE_NONE, 'Skip exploration and consolidation — go straight to the --apply review flow using the existing category-discovery.json');
+			->addOption('apply-only', null, InputOption::VALUE_NONE, 'Skip exploration — go straight to the --apply review flow using the existing category-discovery.json');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int
 	{
-		$io            = new SymfonyStyle($input, $output);
-		$outputDir     = $input->getOption('output');
-		$freeMode      = (bool) $input->getOption('free');
-		$noConsolidate = (bool) $input->getOption('no-consolidate');
-		$consolidateOnly = (bool) $input->getOption('consolidate-only');
-		$applyOnly     = (bool) $input->getOption('apply-only');
-		$doApply       = (bool) $input->getOption('apply') || $applyOnly;
+		$io        = new SymfonyStyle($input, $output);
+		$outputDir = $input->getOption('output');
+		$freeMode  = (bool) $input->getOption('free');
+		$applyOnly = (bool) $input->getOption('apply-only');
+		$doApply   = (bool) $input->getOption('apply') || $applyOnly;
 
 		$io->title('Category Explorer');
 
-		$config      = require __DIR__ . '/../../config/config.php';
-		$reportPath  = rtrim($outputDir, '/') . '/category-discovery.json';
+		$config     = require __DIR__ . '/../../config/config.php';
+		$reportPath = rtrim($outputDir, '/') . '/category-discovery.json';
 
-		// Set up Ollama (needed for consolidation too)
+		// Set up Ollama
 		$ollamaConfig = $config['ollama'];
 		if ($input->getOption('model')) {
 			$ollamaConfig['model'] = $input->getOption('model');
@@ -65,10 +61,10 @@ final class ExploreCommand extends Command
 		}
 
 		// ------------------------------------------------------------------
-		// Short-circuit paths: --consolidate-only and --apply-only
+		// Short-circuit: --apply-only
 		// ------------------------------------------------------------------
-		if ($consolidateOnly || $applyOnly) {
-			return $this->runFromReport($input, $io, $config, $reportPath, $ollamaConfig, $consolidateOnly, $doApply, $freeMode);
+		if ($applyOnly) {
+			return $this->runFromReport($io, $config, $reportPath, $doApply);
 		}
 
 		// ------------------------------------------------------------------
@@ -76,7 +72,7 @@ final class ExploreCommand extends Command
 		// ------------------------------------------------------------------
 		$inputPath = $input->getArgument('input');
 		if ($inputPath === null) {
-			$io->error('An input path (file or directory) is required unless you use --consolidate-only or --apply-only.');
+			$io->error('An input path (file or directory) is required unless you use --apply-only.');
 			return Command::FAILURE;
 		}
 
@@ -190,12 +186,6 @@ final class ExploreCommand extends Command
 			return Command::SUCCESS;
 		}
 
-		// ------------------------------------------------------------------
-		// Consolidation pass
-		// ------------------------------------------------------------------
-		if (!$noConsolidate && count($allSuggestions) > 1) {
-			$allSuggestions = $this->consolidateSuggestions($io, $ollama, $allSuggestions);
-		}
 
 		uasort($allSuggestions, fn($a, $b) => $b['count'] <=> $a['count']);
 
@@ -216,23 +206,18 @@ final class ExploreCommand extends Command
 	// -----------------------------------------------------------------------
 
 	private function runFromReport(
-		InputInterface $input,
 		SymfonyStyle $io,
 		array $config,
 		string $reportPath,
-		array $ollamaConfig,
-		bool $consolidateOnly,
 		bool $doApply,
-		bool $freeMode,
 	): int {
 		if (!file_exists($reportPath)) {
 			$io->error("No discovery report found at: {$reportPath}. Run explore first to generate one.");
 			return Command::FAILURE;
 		}
 
-		$reportData     = json_decode((string) file_get_contents($reportPath), true, 512, JSON_THROW_ON_ERROR);
-		$existingSlugs  = $reportData['existing_categories'] ?? [];
-		$reportFreeMode = $freeMode || ($reportData['free_mode'] ?? false);
+		$reportData    = json_decode((string) file_get_contents($reportPath), true, 512, JSON_THROW_ON_ERROR);
+		$existingSlugs = $reportData['existing_categories'] ?? [];
 
 		// Rebuild allSuggestions map from the report's discovered_categories array
 		$allSuggestions = [];
@@ -249,32 +234,7 @@ final class ExploreCommand extends Command
 		}
 
 		$io->text(sprintf('Loaded %d categories from %s', count($allSuggestions), $reportPath));
-
-		if ($consolidateOnly) {
-			$ollama = OllamaClient::fromConfig($ollamaConfig);
-
-			if (!$ollama->isAvailable()) {
-				$io->error("Ollama not available — cannot consolidate.");
-				return Command::FAILURE;
-			}
-
-			$io->text(sprintf('Consolidating %d categories…', count($allSuggestions)));
-			$allSuggestions = $this->consolidateSuggestions($io, $ollama, $allSuggestions);
-
-			uasort($allSuggestions, fn($a, $b) => $b['count'] <=> $a['count']);
-
-			// Update the report in place
-			$this->saveDiscoveryReport(
-				$reportPath,
-				$allSuggestions,
-				$ollamaConfig['model'] ?? 'unknown',
-				$reportFreeMode,
-				$reportData['conversations_sampled'] ?? 0,
-				$existingSlugs,
-			);
-
-			$io->text("Discovery report updated: {$reportPath}");
-		}
+		$this->printDiscoveryTable($io, $allSuggestions);
 
 		if ($doApply) {
 			$this->runApply($io, $config, $allSuggestions, $existingSlugs);
@@ -580,38 +540,6 @@ Rules:
 SYSTEM;
 	}
 
-	private function buildConsolidationSystemPrompt(): string
-	{
-		return <<<'SYSTEM'
-You are reviewing a set of conversation category drafts produced by batch analysis.
-Some drafts overlap or cover the same topic under different names.
-
-Your job is to produce a final, clean, non-overlapping taxonomy by merging the overlapping
-drafts. Preserve every genuinely distinct category.
-
-Respond ONLY with valid JSON (no markdown fences, no preamble). Use this structure:
-{
-  "suggestions": [
-    {
-      "slug": "kebab-case-slug",
-      "name": "Human-Readable Category Name",
-      "description": "What this category covers after merging",
-      "sample_titles": ["up to 3 representative conversation titles"]
-    }
-  ]
-}
-
-Rules:
-- Merge drafts that cover the same or heavily overlapping ground into one entry.
-- Use the most descriptive name and description from the merged set.
-- Preserve every genuinely distinct draft, even if it appeared only once.
-- Do not invent new categories — only work with the drafts provided.
-- Do not add an "other" or "miscellaneous" category.
-- Slugs must be kebab-case, max 30 characters.
-- Be specific — "misc-technical" is too vague; "embedded-rust" is good.
-SYSTEM;
-	}
-
 	// -----------------------------------------------------------------------
 	// LLM calls
 	// -----------------------------------------------------------------------
@@ -650,128 +578,7 @@ SYSTEM;
 			return [];
 		}
 	}
-
-	/**
-	 * Ask the LLM to merge and deduplicate the discovered categories via multi-pass batching.
-	 *
-	 * Shows a progress bar per pass, prints the table after each pass, and asks the user
-	 * interactively whether to run another pass when more than 15 categories remain.
-	 *
-	 * Returns the merged suggestion list (preserving 'count' where available).
-	 *
-	 * @param array<string, array{slug: string, name: string, description: string, sample_titles: array<string>, count: int}> $allSuggestions
-	 * @return array<string, array{slug: string, name: string, description: string, sample_titles: array<string>, count: int}>
-	 */
-	private function consolidateSuggestions(SymfonyStyle $io, OllamaClient $ollama, array $allSuggestions): array
-	{
-		$system     = $this->buildConsolidationSystemPrompt();
-		$candidates = array_values($allSuggestions);
-		$pass       = 1;
-
-		while (true) {
-			$io->section(sprintf('Consolidation pass %d (%d categories)', $pass, count($candidates)));
-
-			$result = $this->consolidatePass($io, $ollama, $system, $candidates);
-
-			if (empty($result)) {
-				$io->warning('Consolidation pass produced no results — keeping previous list.');
-				break;
-			}
-
-			// Carry counts forward from original allSuggestions for the table display
-			$withCounts = [];
-			foreach ($result as $c) {
-				$slug              = $c['slug'] ?? '';
-				$c['count']        = $allSuggestions[$slug]['count'] ?? 1;
-				$withCounts[$slug] = $c;
-			}
-
-			$io->text(sprintf('Pass %d reduced the list to %d categories.', $pass, count($withCounts)));
-			$this->printDiscoveryTable($io, $withCounts);
-
-			$allSuggestions = $withCounts;
-			$candidates     = array_values($allSuggestions);
-
-			if (count($candidates) <= 15) {
-				$io->text('Category count is low enough — consolidation complete.');
-				break;
-			}
-
-			$pass++;
-			if (!$io->confirm(sprintf('%d categories remain. Run another consolidation pass?', count($candidates)), false)) {
-				break;
-			}
-		}
-
-		return $allSuggestions;
-	}
-
-	/**
-	 * Run one consolidation pass: split $candidates into batches of 10, merge each,
-	 * and return the combined result. Shows a progress bar.
-	 *
-	 * @param array<array{slug: string, name: string, description: string, sample_titles: array<string>}> $candidates
-	 * @return array<array{slug: string, name: string, description: string, sample_titles: array<string>}>
-	 */
-	private function consolidatePass(SymfonyStyle $io, OllamaClient $ollama, string $system, array $candidates): array
-	{
-		$batches = array_chunk($candidates, 10);
-		$merged  = [];
-		$bySlug  = [];
-
-		$io->progressStart(count($batches));
-
-		foreach ($batches as $batch) {
-			$blocks = [];
-			foreach ($batch as $s) {
-				$count    = $s['count'] ?? 1;
-				$examples = implode(', ', array_slice($s['sample_titles'] ?? [], 0, 2));
-				$block    = "--- CATEGORY DRAFT: \"{$s['name']}\" (slug: {$s['slug']}, seen {$count} time(s)) ---";
-				$block   .= "\n{$s['description']}";
-				if ($examples) {
-					$block .= "\nExample conversations: {$examples}";
-				}
-				$blocks[] = $block;
-			}
-
-			$prompt   = implode("\n\n", $blocks);
-			$response = '';
-			try {
-				$response    = $ollama->generate($prompt, $system);
-				$json        = $this->extractJson($response);
-				$result      = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-				$suggestions = $result['suggestions'] ?? [];
-
-				foreach ($suggestions as $s) {
-					$slug = $s['slug'] ?? '';
-					if ($slug !== '' && !isset($bySlug[$slug])) {
-						$bySlug[$slug] = true;
-						$merged[]      = $s;
-					}
-				}
-			} catch (\Throwable $e) {
-				$snippet = mb_substr($response, 0, 800);
-				$io->progressFinish();
-				fwrite(STDERR, "\nConsolidation batch failed: {$e->getMessage()}\nRaw:\n{$snippet}\n");
-				$io->progressStart(count($batches)); // restart bar for remaining batches
-				// Keep original entries so we don't lose data
-				foreach ($batch as $s) {
-					if (!isset($bySlug[$s['slug']])) {
-						$bySlug[$s['slug']] = true;
-						$merged[]           = $s;
-					}
-				}
-			}
-
-			$io->progressAdvance();
-		}
-
-		$io->progressFinish();
-
-		return $merged;
-	}
-
-
+	
 	// -----------------------------------------------------------------------
 	// JSON extraction
 	// -----------------------------------------------------------------------

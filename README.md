@@ -87,20 +87,14 @@ Before categorising, let the LLM discover what topics actually exist in your con
 # Sample more conversations for coverage (-s 0 = all)
 ./bin/ctx explore input/ -s 100
 
-# Skip the consolidation pass — accumulate results, consolidate later
-./bin/ctx explore input/ --no-consolidate
-
 # Re-run after a partial failure — results are MERGED into the existing report
-./bin/ctx explore input/ --no-consolidate
+./bin/ctx explore input/
 
-# Consolidate already-discovered categories without re-running exploration
-./bin/ctx explore --consolidate-only
+# Explore and immediately review results in a single pass
+./bin/ctx explore input/ --apply
 
-# Jump straight to the interactive review without re-running exploration or consolidation
-./bin/ctx explore --apply-only --apply
-
-# Consolidate then immediately review
-./bin/ctx explore --consolidate-only --apply
+# Load an existing discovery report and review (no re-exploration)
+./bin/ctx explore --apply-only
 
 # Tune for speed on long conversations
 ./bin/ctx explore input/ --max-chars 400
@@ -112,8 +106,6 @@ Before categorising, let the LLM discover what topics actually exist in your con
 The explorer uses stratified sampling across the full time range, batches conversations for efficient LLM calls, and aggregates suggestions — if a topic surfaces repeatedly it gets a high count, indicating a real cluster rather than noise.
 
 Each run **merges** its results into `output/category-discovery.json` rather than overwriting it, so you can safely re-run after partial failures to pick up missed batches.
-
-After all batches finish, a **consolidation pass** asks the LLM to merge overlapping candidates into a clean, non-overlapping taxonomy.
 
 With `--apply`, you can interactively review each discovered category:
 - **Add** — add it to `categories.json` (immediately saved; also becomes a merge target for later items in the same session)
