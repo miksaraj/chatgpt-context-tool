@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ChatGPTContext\Command;
 
 use ChatGPTContext\Config\CategoryLoader;
+use ChatGPTContext\Ollama\LlmResponse;
 use ChatGPTContext\Ollama\OllamaClient;
 use ChatGPTContext\Parser\ChatGPTExportParser;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -528,7 +529,7 @@ SYSTEM;
 		$response = '';
 		try {
 			$response = $ollama->generate($batchText, $system, jsonMode: true);
-			$json     = $this->extractJson($response);
+			$json     = LlmResponse::extractJson($response);
 			$result   = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
 			return $result['suggestions'] ?? [];
 		} catch (\Throwable $e) {
@@ -538,61 +539,6 @@ SYSTEM;
 		}
 	}
 	
-	// -----------------------------------------------------------------------
-	// JSON extraction
-	// -----------------------------------------------------------------------
-
-	/**
-	 * Extract the first complete JSON object from a raw LLM response.
-	 *
-	 * @throws \RuntimeException if no JSON object can be found
-	 */
-	private function extractJson(string $raw): string
-	{
-		$cleaned = preg_replace('/```(?:json)?\s*(.*?)\s*```/si', '$1', $raw) ?? $raw;
-
-		$start = strpos($cleaned, '{');
-		if ($start === false) {
-			throw new \RuntimeException('No JSON object found in model response');
-		}
-
-		$depth  = 0;
-		$length = strlen($cleaned);
-		$inStr  = false;
-		$escape = false;
-
-		for ($i = $start; $i < $length; $i++) {
-			$ch = $cleaned[$i];
-
-			if ($escape) {
-				$escape = false;
-				continue;
-			}
-			if ($ch === '\\' && $inStr) {
-				$escape = true;
-				continue;
-			}
-			if ($ch === '"') {
-				$inStr = !$inStr;
-				continue;
-			}
-			if ($inStr) {
-				continue;
-			}
-
-			if ($ch === '{') {
-				$depth++;
-			} elseif ($ch === '}') {
-				$depth--;
-				if ($depth === 0) {
-					return substr($cleaned, $start, (int) ($i - $start + 1));
-				}
-			}
-		}
-
-		throw new \RuntimeException('Unbalanced JSON object in model response');
-	}
-
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------

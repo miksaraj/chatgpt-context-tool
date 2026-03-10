@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ChatGPTContext\Categoriser;
 
+use ChatGPTContext\Ollama\LlmResponse;
 use ChatGPTContext\Ollama\OllamaClient;
 use ChatGPTContext\Parser\Conversation;
 
@@ -16,6 +17,7 @@ final class ConversationCategoriser
         private readonly ?OllamaClient $ollama,
         array $categories,
         private readonly int $maxContextChars = 8000,
+        private readonly bool $debug = false,
     ) {
         $this->categories = $categories;
     }
@@ -43,11 +45,9 @@ final class ConversationCategoriser
         );
         $categoryText = implode("\n", $categoryList);
 
-        $condensed = $conversation->toCondensedText($this->maxContextChars);
-
         $system = <<<SYSTEM
-You are a conversation analyser. You will receive a condensed transcript of a conversation
-and must categorise it, summarise it, and extract key facts.
+You are a conversation analyser. Your task is to read a conversation transcript and produce a structured JSON analysis of it.
+Do NOT continue the conversation. Do NOT respond as a participant. Analyse it from the outside.
 
 IMPORTANT: Always respond in English, regardless of what language the conversation is in.
 
@@ -71,8 +71,19 @@ Rules:
 - relevance_score: 0.0 = trivial/throwaway, 1.0 = extremely important context. Consider how useful this conversation would be for maintaining continuity with the user.
 SYSTEM;
 
+        $condensed = $conversation->toCondensedText($this->maxContextChars);
+
+        $prompt = <<<PROMPT
+CONVERSATION TO ANALYSE:
+---
+{$condensed}
+---
+
+Now provide your JSON analysis of the above conversation. Remember: respond ONLY with valid JSON, no other text.
+PROMPT;
+
         try {
-            $response = $this->ollama->generate($condensed, $system);
+            $response = $this->ollama->generate($prompt, $system);
 
             // Strip any markdown fences or thinking tags that models like deepseek-r1 emit
             $response = preg_replace('/^```(?:json)?\s*/m', '', $response);
@@ -80,7 +91,7 @@ SYSTEM;
             $response = preg_replace('/<think>.*?<\/think>/s', '', $response);
             $response = trim($response);
 
-            $result = json_decode($this->extractJson($response), true, 512, JSON_THROW_ON_ERROR);
+            $result = json_decode(LlmResponse::extractJson($response), true, 512, JSON_THROW_ON_ERROR);
 
             $conversation->categories = $this->validateCategories($result['categories'] ?? []);
             $conversation->tags = array_slice($result['tags'] ?? [], 0, 10);
@@ -89,6 +100,9 @@ SYSTEM;
             $conversation->relevanceScore = max(0.0, min(1.0, (float) ($result['relevance_score'] ?? 0.5)));
 
         } catch (\Throwable $e) {
+            if ($this->debug) {
+                fwrite(STDERR, "\n[DEBUG] Raw model response for '{$conversation->title}':\n{$response}\n");
+            }
             // Re-throw so the command layer can record the error and leave this
             // conversation unsaved — it will be retried on the next run.
             throw $e;
@@ -162,56 +176,5 @@ SYSTEM;
         $validated = array_filter($slugs, fn(string $s) => in_array($s, $validSlugs, true));
 
         return empty($validated) ? ['other'] : array_values($validated);
-    }
-    /**
-     * Extract the first complete JSON object from a raw LLM response.
-     * Handles stray preamble/postamble text that some models emit despite instructions.
-     *
-     * @throws \RuntimeException if no complete JSON object can be found
-     */
-    private function extractJson(string $raw): string
-    {
-        $cleaned = preg_replace('/```(?:json)?\s*(.*?)\s*```/si', '$1', $raw) ?? $raw;
-
-        $start = strpos($cleaned, '{');
-        if ($start === false) {
-            throw new \RuntimeException('No JSON object found in model response');
-        }
-
-        $depth  = 0;
-        $length = strlen($cleaned);
-        $inStr  = false;
-        $escape = false;
-
-        for ($i = $start; $i < $length; $i++) {
-            $ch = $cleaned[$i];
-
-            if ($escape) {
-                $escape = false;
-                continue;
-            }
-            if ($ch === '\\' && $inStr) {
-                $escape = true;
-                continue;
-            }
-            if ($ch === '"') {
-                $inStr = !$inStr;
-                continue;
-            }
-            if ($inStr) {
-                continue;
-            }
-
-            if ($ch === '{') {
-                $depth++;
-            } elseif ($ch === '}') {
-                $depth--;
-                if ($depth === 0) {
-                    return substr($cleaned, $start, (int) ($i - $start + 1));
-                }
-            }
-        }
-
-        throw new \RuntimeException('Incomplete JSON object in model response (response may have been truncated by max_tokens limit)');
     }
 }

@@ -31,7 +31,8 @@ final class CategoriseCommand extends Command
             ->addOption('reset', null, InputOption::VALUE_NONE, 'Reset state and re-categorise everything')
             ->addOption('min-messages', null, InputOption::VALUE_REQUIRED, 'Minimum messages to include', '4')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Max conversations to process (for testing)')
-            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Max tokens for LLM output (increase for long conversations / reasoning models)');
+            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Max tokens for LLM output (increase for long conversations / reasoning models)')
+            ->addOption('debug', null, InputOption::VALUE_NONE, 'Print raw model response for any conversation that fails (useful for diagnosing persistent errors)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -135,6 +136,7 @@ final class CategoriseCommand extends Command
             ollama: $ollama,
             categories: $categories,
             maxContextChars: $config['processing']['max_context_chars'],
+            debug: (bool) $input->getOption('debug'),
         );
 
         // Process conversations
