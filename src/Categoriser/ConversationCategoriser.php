@@ -78,7 +78,7 @@ SYSTEM;
             $response = preg_replace('/<think>.*?<\/think>/s', '', $response);
             $response = trim($response);
 
-            $result = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+            $result = json_decode($this->extractJson($response), true, 512, JSON_THROW_ON_ERROR);
 
             $conversation->categories = $this->validateCategories($result['categories'] ?? []);
             $conversation->tags = array_slice($result['tags'] ?? [], 0, 10);
@@ -160,5 +160,56 @@ SYSTEM;
         $validated = array_filter($slugs, fn(string $s) => in_array($s, $validSlugs, true));
 
         return empty($validated) ? ['other'] : array_values($validated);
+    }
+    /**
+     * Extract the first complete JSON object from a raw LLM response.
+     * Handles stray preamble/postamble text that some models emit despite instructions.
+     *
+     * @throws \RuntimeException if no complete JSON object can be found
+     */
+    private function extractJson(string $raw): string
+    {
+        $cleaned = preg_replace('/```(?:json)?\s*(.*?)\s*```/si', '$1', $raw) ?? $raw;
+
+        $start = strpos($cleaned, '{');
+        if ($start === false) {
+            throw new \RuntimeException('No JSON object found in model response');
+        }
+
+        $depth  = 0;
+        $length = strlen($cleaned);
+        $inStr  = false;
+        $escape = false;
+
+        for ($i = $start; $i < $length; $i++) {
+            $ch = $cleaned[$i];
+
+            if ($escape) {
+                $escape = false;
+                continue;
+            }
+            if ($ch === '\\' && $inStr) {
+                $escape = true;
+                continue;
+            }
+            if ($ch === '"') {
+                $inStr = !$inStr;
+                continue;
+            }
+            if ($inStr) {
+                continue;
+            }
+
+            if ($ch === '{') {
+                $depth++;
+            } elseif ($ch === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($cleaned, $start, (int) ($i - $start + 1));
+                }
+            }
+        }
+
+        throw new \RuntimeException('Incomplete JSON object in model response (response may have been truncated by max_tokens limit)');
     }
 }

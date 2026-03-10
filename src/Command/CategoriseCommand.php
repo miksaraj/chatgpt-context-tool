@@ -30,7 +30,8 @@ final class CategoriseCommand extends Command
             ->addOption('keywords-only', 'k', InputOption::VALUE_NONE, 'Skip Ollama, use keyword matching only')
             ->addOption('reset', null, InputOption::VALUE_NONE, 'Reset state and re-categorise everything')
             ->addOption('min-messages', null, InputOption::VALUE_REQUIRED, 'Minimum messages to include', '4')
-            ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Max conversations to process (for testing)');
+            ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Max conversations to process (for testing)')
+            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Max tokens for LLM output (increase for long conversations / reasoning models)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -103,6 +104,9 @@ final class CategoriseCommand extends Command
             }
             if ($input->getOption('host')) {
                 $ollamaConfig['host'] = $input->getOption('host');
+            }
+            if ($input->getOption('max-tokens') !== null) {
+                $ollamaConfig['max_tokens'] = (int) $input->getOption('max-tokens');
             }
 
             $ollama = OllamaClient::fromConfig($ollamaConfig);
