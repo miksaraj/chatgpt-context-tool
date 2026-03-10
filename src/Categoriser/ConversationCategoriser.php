@@ -49,6 +49,8 @@ final class ConversationCategoriser
 You are a conversation analyser. You will receive a condensed transcript of a conversation
 and must categorise it, summarise it, and extract key facts.
 
+IMPORTANT: Always respond in English, regardless of what language the conversation is in.
+
 Available categories:
 {$categoryText}
 
