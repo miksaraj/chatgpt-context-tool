@@ -2,6 +2,9 @@
 
 CLI tool to parse, categorise, and package ChatGPT exports for LLM context consumption. Built for processing 500+ conversation exports into structured, reviewable context packages.
 
+> [!NOTE]
+> This tool uses large language models (LLMs) via Ollama for categorisation and category discovery. **LLMs are non-deterministic** — the same input can produce different output on different runs, and the model may occasionally return malformed JSON, miss categories, or produce unexpected results. This is normal. Commands are designed to be **safely re-run**: state is persisted between runs so you won't lose work, and results are merged rather than overwritten. If a batch fails or the output looks off, just run the command again.
+
 ## Requirements
 
 - PHP 8.2+
