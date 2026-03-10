@@ -17,7 +17,7 @@ use ChatGPTContext\Command\ExportCommand;
 use ChatGPTContext\Command\StatsCommand;
 use Symfony\Component\Console\Application;
 
-$app = new Application('ChatGPT Context Tool', '0.1.0');
+$app = new Application('ChatGPT Context Tool', '1.0.0');
 
 $app->add(new ParseCommand());
 $app->add(new ExploreCommand());

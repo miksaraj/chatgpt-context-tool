@@ -6,3 +6,4 @@ categories.json
 .ctx-state.json
 *.cache
 /.idea/
+.DS_Store
