@@ -20,7 +20,7 @@ final class StatsCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('input', InputArgument::REQUIRED, 'Path to conversations.json')
+            ->addArgument('input', InputArgument::REQUIRED, 'Path to a conversations.json file, or a directory of *.json exports')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output directory', './output')
             ->addOption('min-messages', null, InputOption::VALUE_REQUIRED, 'Minimum messages to include', '4');
     }
@@ -35,7 +35,7 @@ final class StatsCommand extends Command
         $io->title('Conversation Statistics');
 
         $parser = new ChatGPTExportParser();
-        $conversations = $parser->parse($filePath);
+        $conversations = $parser->parseFromPath($filePath);
         $allCount = count($conversations);
         $conversations = array_filter($conversations, fn($c) => $c->messageCount() >= $minMessages);
         $conversations = array_values($conversations);

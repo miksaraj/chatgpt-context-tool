@@ -64,10 +64,16 @@ Override at runtime: `./bin/ctx categorise conversations.json -m qwen3`
 
 The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → stats**
 
+> **Tip:** Every command that takes a conversations export accepts either a single `conversations.json` file **or** a directory path — when a directory is given, all `*.json` files inside are merged and deduplicated automatically. The examples throughout this section show both forms interchangeably.
+
 ### 1. Parse the export
 
 ```bash
+# Single file
 ./bin/ctx parse /path/to/conversations.json
+
+# Whole directory of exports
+./bin/ctx parse input/
 ```
 
 Reads the ChatGPT export, filters out trivially short conversations, and creates a `parsed-index.json`.
@@ -131,6 +137,7 @@ Set `OLLAMA_TIMEOUT` in `.env` to at least `300` (seconds) per batch.
 ```bash
 # With Ollama (recommended)
 ./bin/ctx categorise /path/to/conversations.json
+./bin/ctx categorise input/
 
 # With a specific model
 ./bin/ctx categorise /path/to/conversations.json -m qwen3
@@ -149,6 +156,7 @@ Categorisation state is persisted — if interrupted, re-running will resume fro
 ```bash
 # Review all
 ./bin/ctx review /path/to/conversations.json
+./bin/ctx review input/
 
 # Review a specific category
 ./bin/ctx review /path/to/conversations.json -c software-dev
@@ -164,6 +172,7 @@ Interactive review lets you adjust categories, relevance scores, or mark convers
 ```bash
 # Standard export (JSON + Markdown per category)
 ./bin/ctx export /path/to/conversations.json
+./bin/ctx export input/
 
 # Export only one category
 ./bin/ctx export /path/to/conversations.json -c software-dev
@@ -179,6 +188,7 @@ Interactive review lets you adjust categories, relevance scores, or mark convers
 
 ```bash
 ./bin/ctx stats /path/to/conversations.json
+./bin/ctx stats input/
 ```
 
 ## Output Structure

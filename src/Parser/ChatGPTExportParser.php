@@ -9,6 +9,44 @@ use RuntimeException;
 final class ChatGPTExportParser
 {
     /**
+     * Parse conversations from a single file OR every *.json file in a directory.
+     *
+     * When a directory is given, results from all files are merged and
+     * deduplicated by conversation ID (last-write wins within a single run).
+     *
+     * @return array<Conversation>
+     * @throws RuntimeException if the path does not exist, or a directory contains no *.json files
+     */
+    public function parseFromPath(string $inputPath): array
+    {
+        if (is_file($inputPath)) {
+            return $this->parse($inputPath);
+        }
+
+        if (is_dir($inputPath)) {
+            $files = glob(rtrim($inputPath, '/') . '/*.json') ?: [];
+            if (empty($files)) {
+                throw new RuntimeException("No *.json files found in directory: {$inputPath}");
+            }
+
+            $byId = [];
+            foreach ($files as $file) {
+                foreach ($this->parse($file) as $conv) {
+                    $byId[$conv->id] = $conv;
+                }
+            }
+
+            // Re-sort merged list by creation time, newest first
+            $merged = array_values($byId);
+            usort($merged, fn(Conversation $a, Conversation $b) => $b->createTime <=> $a->createTime);
+
+            return $merged;
+        }
+
+        throw new RuntimeException("Input path does not exist: {$inputPath}");
+    }
+
+    /**
      * Parse the conversations.json file from a ChatGPT export.
      *
      * @return array<Conversation>

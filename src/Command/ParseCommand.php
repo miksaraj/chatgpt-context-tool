@@ -19,7 +19,7 @@ final class ParseCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('input', InputArgument::REQUIRED, 'Path to conversations.json')
+            ->addArgument('input', InputArgument::REQUIRED, 'Path to a conversations.json file, or a directory of *.json exports')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output directory', './output')
             ->addOption('min-messages', null, InputOption::VALUE_REQUIRED, 'Minimum messages to include', '4');
     }
@@ -33,17 +33,12 @@ final class ParseCommand extends Command
 
         $io->title('ChatGPT Export Parser');
 
-        if (!file_exists($filePath)) {
-            $io->error("File not found: {$filePath}");
-            return Command::FAILURE;
-        }
-
         $io->text("Parsing: {$filePath}");
 
         $parser = new ChatGPTExportParser();
 
         try {
-            $conversations = $parser->parse($filePath);
+            $conversations = $parser->parseFromPath($filePath);
         } catch (\Throwable $e) {
             $io->error("Parse failed: {$e->getMessage()}");
             return Command::FAILURE;

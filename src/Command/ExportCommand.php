@@ -22,7 +22,7 @@ final class ExportCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('input', InputArgument::REQUIRED, 'Path to conversations.json')
+            ->addArgument('input', InputArgument::REQUIRED, 'Path to a conversations.json file, or a directory of *.json exports')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output directory', './output')
             ->addOption('category', 'c', InputOption::VALUE_REQUIRED, 'Export only this category')
             ->addOption('context-package', null, InputOption::VALUE_NONE, 'Generate LLM-optimised context package')
@@ -57,7 +57,7 @@ final class ExportCommand extends Command
 
         // Parse and restore
         $parser = new ChatGPTExportParser();
-        $conversations = $parser->parse($filePath);
+        $conversations = $parser->parseFromPath($filePath);
         $conversations = array_filter($conversations, fn($c) => $c->messageCount() >= $minMessages);
         $conversations = array_values($conversations);
 

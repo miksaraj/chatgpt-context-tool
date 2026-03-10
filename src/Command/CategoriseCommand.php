@@ -23,7 +23,7 @@ final class CategoriseCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('input', InputArgument::REQUIRED, 'Path to conversations.json')
+            ->addArgument('input', InputArgument::REQUIRED, 'Path to a conversations.json file, or a directory of *.json exports')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output directory', './output')
             ->addOption('model', 'm', InputOption::VALUE_REQUIRED, 'Ollama model to use (overrides config)')
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Ollama host URL', 'http://localhost:11434')
@@ -63,7 +63,7 @@ final class CategoriseCommand extends Command
         $parser = new ChatGPTExportParser();
 
         try {
-            $conversations = $parser->parse($filePath);
+            $conversations = $parser->parseFromPath($filePath);
         } catch (\Throwable $e) {
             $io->error("Parse failed: {$e->getMessage()}");
             return Command::FAILURE;

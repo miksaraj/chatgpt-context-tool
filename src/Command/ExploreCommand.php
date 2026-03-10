@@ -115,9 +115,10 @@ final class ExploreCommand extends Command
 
 		// Parse conversations
 		$parser        = new ChatGPTExportParser();
-		$conversations = $this->loadConversations($parser, $inputPath, $io);
-
-		if ($conversations === null) {
+		try {
+			$conversations = $parser->parseFromPath($inputPath);
+		} catch (\RuntimeException $e) {
+			$io->error($e->getMessage());
 			return Command::FAILURE;
 		}
 
@@ -434,48 +435,6 @@ final class ExploreCommand extends Command
 		$io->table(['Slug', 'Name', 'Mentions', 'Sample Conversations'], $rows);
 	}
 
-	// -----------------------------------------------------------------------
-	// Input loading
-	// -----------------------------------------------------------------------
-
-	/**
-	 * Load conversations from a single file or every *.json file in a directory.
-	 *
-	 * @return array<\ChatGPTContext\Parser\Conversation>|null
-	 */
-	private function loadConversations(ChatGPTExportParser $parser, string $inputPath, SymfonyStyle $io): ?array
-	{
-		if (is_file($inputPath)) {
-			return $parser->parse($inputPath);
-		}
-
-		if (is_dir($inputPath)) {
-			$files = glob(rtrim($inputPath, '/') . '/*.json');
-			if (empty($files)) {
-				$io->error("No *.json files found in directory: {$inputPath}");
-				return null;
-			}
-
-			$io->text(sprintf('Found %d JSON file(s) in %s', count($files), $inputPath));
-
-			$byId = [];
-			foreach ($files as $file) {
-				$convs = $parser->parse($file);
-				foreach ($convs as $conv) {
-					$byId[$conv->id] = $conv;
-				}
-			}
-
-			return array_values($byId);
-		}
-
-		$io->error("Input path does not exist: {$inputPath}");
-		return null;
-	}
-
-	// -----------------------------------------------------------------------
-	// Prompts
-	// -----------------------------------------------------------------------
 
 	private function buildConstrainedSystemPrompt(string $existingCategories): string
 	{
