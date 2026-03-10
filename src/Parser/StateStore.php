@@ -22,11 +22,28 @@ final class StateStore
     }
 
     /**
-     * Check if a conversation has already been categorised.
+     * Check if a conversation has already been categorised (any method).
      */
     public function isCategorised(string $conversationId): bool
     {
         return isset($this->state['categorised'][$conversationId]);
+    }
+
+    /**
+     * Check if a conversation was categorised successfully by the LLM.
+     *
+     * A successful LLM run always produces a non-empty summary or at least one tag.
+     * Entries with both fields empty are treated as failed/keyword-fallback results
+     * and should be retried when the LLM is available.
+     */
+    public function isSuccessfullyCategorised(string $conversationId): bool
+    {
+        $entry = $this->state['categorised'][$conversationId] ?? null;
+        if ($entry === null) {
+            return false;
+        }
+
+        return ($entry['summary'] ?? '') !== '' || !empty($entry['tags']);
     }
 
     /**

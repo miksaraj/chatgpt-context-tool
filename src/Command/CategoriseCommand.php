@@ -93,6 +93,7 @@ final class CategoriseCommand extends Command
 
         // Set up Ollama or keyword-only mode
         $ollama = null;
+        $usingLlm = false;
 
         if (!$input->getOption('keywords-only')) {
             $ollamaConfig = $config['ollama'];
@@ -108,6 +109,7 @@ final class CategoriseCommand extends Command
 
             if ($ollama->isAvailable()) {
                 $io->success("Ollama connected — using model: {$ollama->getModel()}");
+                $usingLlm = true;
             } else {
                 $io->warning("Ollama not available (model: {$ollama->getModel()}). Listing available models...");
 
@@ -132,13 +134,23 @@ final class CategoriseCommand extends Command
         );
 
         // Process conversations
-        $io->progressStart(count($conversations));
+        $progressBar = $io->createProgressBar(count($conversations));
+        $progressBar->minSecondsBetweenRedraws(0);
+        $progressBar->start();
         $processed = 0;
+        $retried = 0;
         $skipped = 0;
         $errors = 0;
 
         foreach ($conversations as $conv) {
-            if ($state->isCategorised($conv->id)) {
+            // When using the LLM, only skip entries that were genuinely categorised
+            // by the LLM (have a summary or tags). Entries with empty metadata were
+            // saved by a keyword fallback and should be retried.
+            $alreadyGood = $usingLlm
+                ? $state->isSuccessfullyCategorised($conv->id)
+                : $state->isCategorised($conv->id);
+
+            if ($alreadyGood) {
                 // Restore previous categorisation
                 $cached = $state->getCategorisation($conv->id);
                 $conv->categories = $cached['categories'] ?? ['other'];
@@ -147,29 +159,34 @@ final class CategoriseCommand extends Command
                 $conv->keyFacts = $cached['key_facts'] ?? [];
                 $conv->relevanceScore = (float) ($cached['relevance_score'] ?? 0.5);
                 $skipped++;
-                $io->progressAdvance();
+                $progressBar->advance();
                 continue;
             }
+
+            $isPreviouslyStored = $state->isCategorised($conv->id);
 
             try {
                 $categoriser->categorise($conv);
                 $state->saveCategorisation($conv);
-                $processed++;
+                if ($isPreviouslyStored) {
+                    $retried++;
+                } else {
+                    $processed++;
+                }
             } catch (\Throwable $e) {
-                $conv->categories = ['other'];
-                $conv->relevanceScore = 0.0;
                 $errors++;
                 $io->warning("Error on '{$conv->title}': {$e->getMessage()}");
             }
 
-            $io->progressAdvance();
+            $progressBar->advance();
         }
 
-        $io->progressFinish();
+        $progressBar->finish();
 
         $io->success(sprintf(
-            'Done! Processed: %d | Skipped (cached): %d | Errors: %d',
+            'Done! Processed: %d | Retried (previously failed): %d | Skipped (cached): %d | Errors: %d',
             $processed,
+            $retried,
             $skipped,
             $errors,
         ));

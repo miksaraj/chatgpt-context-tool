@@ -87,9 +87,9 @@ SYSTEM;
             $conversation->relevanceScore = max(0.0, min(1.0, (float) ($result['relevance_score'] ?? 0.5)));
 
         } catch (\Throwable $e) {
-            // LLM failed — fall back to keywords
-            error_log("LLM categorisation failed for '{$conversation->title}': {$e->getMessage()}");
-            return $this->categoriseWithKeywords($conversation);
+            // Re-throw so the command layer can record the error and leave this
+            // conversation unsaved — it will be retried on the next run.
+            throw $e;
         }
 
         return $conversation;
