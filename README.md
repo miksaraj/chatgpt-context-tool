@@ -150,14 +150,20 @@ Set `OLLAMA_TIMEOUT` in `.env` to at least `300` (seconds) per batch.
 
 # Test with a small batch first
 ./bin/ctx categorise /path/to/conversations.json -l 10
+
+# Increase token budget for long conversations or reasoning models
+./bin/ctx categorise input/ --max-tokens 4096
+
+# Debug persistent failures — prints the raw model response for any conversation that errors
+./bin/ctx categorise input/ --debug 2>debug.log
 ```
 
-Categorisation state is persisted — if interrupted, re-running will resume from where it left off. Use `--reset` to start fresh.
+Categorisation state is persisted — if interrupted, re-running will resume from where it left off, skipping conversations that were already successfully categorised. Conversations where the LLM previously failed (empty summary and tags) are **automatically retried** on the next run. Use `--reset` to start completely fresh.
 
 ### 4. Review and correct
 
 ```bash
-# Review all
+# Review all categorised conversations
 ./bin/ctx review /path/to/conversations.json
 ./bin/ctx review input/
 
@@ -166,9 +172,22 @@ Categorisation state is persisted — if interrupted, re-running will resume fro
 
 # Review only high-relevance conversations
 ./bin/ctx review /path/to/conversations.json --min-relevance 0.7
+
+# Review specific conversations by ID (repeatable or comma-separated)
+./bin/ctx review input/ --id 68f10039-e010-832b-9a54-63eccdae57c3
+./bin/ctx review input/ --id abc123 --id def456
+./bin/ctx review input/ --id abc123,def456
 ```
 
-Interactive review lets you adjust categories, relevance scores, or mark conversations as irrelevant.
+Each conversation is presented with its metadata, summary, and key facts. You can take **multiple actions** before moving on — the prompt loops until you choose **next**:
+
+- **next** — advance to the next conversation (saves all changes made in this iteration)
+- **recategorise** — shows a numbered list of all categories (with current ones marked `*`); enter comma-separated numbers to reassign
+- **relevance** — set a new relevance score (0.0–1.0)
+- **delete** — set relevance to 0 (marks as irrelevant)
+- **quit** — save changes to the current conversation and exit
+
+All changes within a single conversation are accumulated and written once when you advance, so you can recategorise *and* adjust relevance in the same step.
 
 ### 5. Export
 
