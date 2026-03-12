@@ -244,8 +244,19 @@ final class ContextExporter
         // Load and merge with any existing index
         $existingStats = [];
         if (is_file($path)) {
-            $existing = json_decode(file_get_contents($path), true);
-            $existingStats = $existing['categories'] ?? [];
+            $contents = file_get_contents($path);
+            if ($contents === false) {
+                $contents = '{}';
+            }
+
+            try {
+                $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+                if (is_array($existing)) {
+                    $existingStats = $existing['categories'] ?? [];
+                }
+            } catch (\JsonException) {
+                $existingStats = [];
+            }
         }
 
         // Existing slugs not in this run are preserved; current run overwrites its own slugs
