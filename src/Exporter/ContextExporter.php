@@ -216,16 +216,23 @@ final class ContextExporter
     }
 
     /**
+     * Merge the current export run's category stats into the existing index.json (if any).
+     *
+     * Merge strategy: current-run wins per slug (updated counts/relevance), while slugs
+     * that exist in the previous index but were not part of this run are preserved as-is.
+     * total_conversations is recomputed as the sum of counts across the merged category map.
+     *
      * @param array<Conversation> $conversations
      */
     private function exportIndex(string $path, array $conversations, array $categories): void
     {
-        $catStats = [];
+        // Build stats for the categories touched in this run
+        $newStats = [];
         foreach ($categories as $cat) {
             $catConvs = array_filter($conversations, fn(Conversation $c) =>
                 in_array($cat['slug'], $c->categories, true)
             );
-            $catStats[$cat['slug']] = [
+            $newStats[$cat['slug']] = [
                 'name' => $cat['name'],
                 'count' => count($catConvs),
                 'avg_relevance' => count($catConvs) > 0
@@ -234,10 +241,23 @@ final class ContextExporter
             ];
         }
 
+        // Load and merge with any existing index
+        $existingStats = [];
+        if (is_file($path)) {
+            $existing = json_decode(file_get_contents($path), true);
+            $existingStats = $existing['categories'] ?? [];
+        }
+
+        // Existing slugs not in this run are preserved; current run overwrites its own slugs
+        $mergedStats = array_merge($existingStats, $newStats);
+
+        // Recompute total from the merged set
+        $totalConversations = array_sum(array_column($mergedStats, 'count'));
+
         $data = [
-            'exported_at' => date('Y-m-d\TH:i:sP'),
-            'total_conversations' => count($conversations),
-            'categories' => $catStats,
+            'exported_at' => date('Y-m-d\\TH:i:sP'),
+            'total_conversations' => $totalConversations,
+            'categories' => $mergedStats,
         ];
 
         file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
