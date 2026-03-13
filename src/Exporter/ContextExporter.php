@@ -216,16 +216,24 @@ final class ContextExporter
     }
 
     /**
+     * Merge the current export run's category stats into the existing index.json (if any).
+     *
+     * Merge strategy: current-run wins per slug (updated counts/relevance), while slugs
+     * that exist in the previous index but were not part of this run are preserved as-is.
+     * total_conversations tracks unique conversations and is never recomputed from category
+     * sums (which would over-count multi-category conversations).
+     *
      * @param array<Conversation> $conversations
      */
     private function exportIndex(string $path, array $conversations, array $categories): void
     {
-        $catStats = [];
+        // Build stats for the categories touched in this run
+        $newStats = [];
         foreach ($categories as $cat) {
             $catConvs = array_filter($conversations, fn(Conversation $c) =>
                 in_array($cat['slug'], $c->categories, true)
             );
-            $catStats[$cat['slug']] = [
+            $newStats[$cat['slug']] = [
                 'name' => $cat['name'],
                 'count' => count($catConvs),
                 'avg_relevance' => count($catConvs) > 0
@@ -234,12 +242,189 @@ final class ContextExporter
             ];
         }
 
-        $data = [
-            'exported_at' => date('Y-m-d\TH:i:sP'),
-            'total_conversations' => count($conversations),
-            'categories' => $catStats,
-        ];
+        // Use a dedicated lock file to serialise the read→merge→write sequence.
+        // Without this, two overlapping export runs can both read the same old index,
+        // compute independent merges, and the last rename() wins—silently losing the other's updates.
+        $lockPath = $path . '.lock';
+        $lockHandle = fopen($lockPath, 'c');
+        if ($lockHandle === false) {
+            throw new \RuntimeException(sprintf('Unable to open lock file for index: %s', $lockPath));
+        }
 
-        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new \RuntimeException(sprintf('Unable to acquire exclusive lock for index: %s', $lockPath));
+        }
+
+        try {
+            // Load and merge with any existing index
+            $existingStats = [];
+            if (is_file($path)) {
+                $fh = fopen($path, 'r');
+                if ($fh === false) {
+                    $contents = '{}';
+                } else {
+                    $contents = stream_get_contents($fh);
+                    fclose($fh);
+                    if ($contents === false) {
+                        $contents = '{}';
+                    }
+                }
+
+                try {
+                    $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+                    if (is_array($existing)) {
+                        $existingStats = is_array($existing['categories'] ?? null)
+                            ? $existing['categories']
+                            : [];
+                    }
+                } catch (\JsonException) {
+                    // Treat a corrupted index as empty; this run will rebuild stats only for the exported categories
+                    $existingStats = [];
+                }
+            }
+
+            // Existing slugs not in this run are preserved; current run overwrites its own slugs
+            $mergedStats = array_merge($existingStats, $newStats);
+
+            // Count unique conversations that belong to at least one of the exported
+            // categories. count($conversations) would over-report on a filtered
+            // (--category) run because the caller always passes the full categorised
+            // set; conversations outside the exported slugs must not be counted here.
+            $exportedIds = [];
+            foreach ($categories as $cat) {
+                foreach ($conversations as $conv) {
+                    if (in_array($cat['slug'], $conv->categories, true)) {
+                        $exportedIds[$conv->id] = true;
+                    }
+                }
+            }
+            $totalConversations = count($exportedIds);
+
+            $data = [
+                'exported_at' => date('Y-m-d\TH:i:sP'),
+                'total_conversations' => $totalConversations,
+                'categories' => $mergedStats,
+            ];
+
+            $flags = JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR;
+            if ($this->jsonIndent) {
+                $flags |= JSON_PRETTY_PRINT;
+            }
+
+            $json = json_encode($data, $flags);
+
+            // tempnam() ensures the temp file is created on the same filesystem as $path,
+            // which is required for rename() to be atomic.
+            $tempPath = tempnam(dirname($path), 'ctxidx_');
+            if ($tempPath === false) {
+                $tempPath = $path . '.' . uniqid('tmp', true);
+            }
+
+            $bytesWritten = file_put_contents($tempPath, $json, LOCK_EX);
+            if ($bytesWritten === false) {
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Failed to write index to temporary file "%s".',
+                    $tempPath,
+                ));
+            }
+
+            if ($bytesWritten !== strlen($json)) {
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Short write when writing index to temporary file "%s" (wrote %d of %d bytes).',
+                    $tempPath,
+                    $bytesWritten,
+                    strlen($json),
+                ));
+            }
+
+            // tempnam() creates files with restrictive permissions (typically 0600).
+            // Apply the existing index's mode (or a sensible default) so that
+            // index.json has consistent permissions with the other exported files.
+            $mode = 0644;
+            if (is_file($path)) {
+                $perms = @fileperms($path);
+                if ($perms !== false) {
+                    $candidateMode = ($perms & 0777);
+                    if ($candidateMode !== 0) {
+                        $mode = $candidateMode;
+                    }
+                }
+            }
+            $isWindowsForChmod = (DIRECTORY_SEPARATOR === '\\');
+            // On Windows (and some filesystems), chmod with Unix-style modes may be
+            // unsupported or a no-op. Treat chmod as best-effort so index generation
+            // can still succeed even if permissions cannot be adjusted.
+            if (!$isWindowsForChmod && !@chmod($tempPath, $mode)) {
+                $error = error_get_last();
+                $errorMessage = $error['message'] ?? 'unknown error';
+                // Log a warning but continue with the export; the file contents are
+                // still valid even if the mode could not be changed.
+                @trigger_error(sprintf(
+                    'Failed to change permissions on temporary index file "%s" to mode %o: %s',
+                    $tempPath,
+                    $mode,
+                    $errorMessage,
+                ), E_USER_WARNING);
+            }
+
+            // First try a direct atomic rename. On POSIX, this atomically replaces any
+            // existing destination. On Windows, this will fail if the destination exists.
+            if (!rename($tempPath, $path)) {
+                $initialRenameError = error_get_last();
+                // Windows-specific fallback: if the destination exists, rename it to a
+                // backup, then move the temp file into place, and finally clean up the
+                // backup. This keeps the window where the index is missing as small as
+                // possible while avoiding a pre-rename unlink.
+                $isWindows = (DIRECTORY_SEPARATOR === '\\');
+
+                if ($isWindows && is_file($path)) {
+                    $backupPath = $path . '.bak.' . uniqid('', true);
+
+                    if (!rename($path, $backupPath)) {
+                        $error = error_get_last();
+                        $errorMessage = $error['message'] ?? 'unknown error';
+                        @unlink($tempPath);
+                        throw new \RuntimeException(sprintf(
+                            'Failed to move existing index file "%s" to backup "%s": %s',
+                            $path,
+                            $backupPath,
+                            $errorMessage,
+                        ));
+                    }
+
+                    if (!rename($tempPath, $path)) {
+                        $error = error_get_last();
+                        $errorMessage = $error['message'] ?? 'unknown error';
+                        // Attempt best-effort restore of the original file.
+                        @rename($backupPath, $path);
+                        @unlink($tempPath);
+                        throw new \RuntimeException(sprintf(
+                            'Failed to replace index file "%s" with temporary file "%s" after backup: %s',
+                            $path,
+                            $tempPath,
+                            $errorMessage,
+                        ));
+                    }
+
+                    // New index in place; remove the backup.
+                    @unlink($backupPath);
+                } else {
+                    @unlink($tempPath);
+                    $errorMessage = $initialRenameError['message'] ?? 'unknown error';
+                    throw new \RuntimeException(sprintf(
+                        'Failed to replace index file "%s" with temporary file "%s": %s',
+                        $path,
+                        $tempPath,
+                        $errorMessage,
+                    ));
+                }
+            }
+        } finally {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
+        }
     }
 }
