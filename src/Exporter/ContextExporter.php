@@ -220,7 +220,8 @@ final class ContextExporter
      *
      * Merge strategy: current-run wins per slug (updated counts/relevance), while slugs
      * that exist in the previous index but were not part of this run are preserved as-is.
-     * total_conversations is recomputed as the sum of counts across the merged category map.
+     * total_conversations tracks unique conversations and is never recomputed from category
+     * sums (which would over-count multi-category conversations).
      *
      * @param array<Conversation> $conversations
      */
@@ -243,6 +244,7 @@ final class ContextExporter
 
         // Load and merge with any existing index
         $existingStats = [];
+        $existingTotal = 0;
         if (is_file($path)) {
             $contents = file_get_contents($path);
             if ($contents === false) {
@@ -252,9 +254,13 @@ final class ContextExporter
             try {
                 $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
                 if (is_array($existing)) {
-                    $existingStats = $existing['categories'] ?? [];
+                    $existingTotal = (int) ($existing['total_conversations'] ?? 0);
+                    $existingStats = is_array($existing['categories'] ?? null)
+                        ? $existing['categories']
+                        : [];
                 }
             } catch (\JsonException) {
+                // Treat a corrupted index as empty; the export will rebuild from scratch
                 $existingStats = [];
             }
         }
@@ -262,8 +268,10 @@ final class ContextExporter
         // Existing slugs not in this run are preserved; current run overwrites its own slugs
         $mergedStats = array_merge($existingStats, $newStats);
 
-        // Recompute total from the merged set
-        $totalConversations = array_sum(array_column($mergedStats, 'count'));
+        // Use the larger of the existing stored total and this run's unique conversation count.
+        // Never derive from array_sum of category counts — multi-category conversations would
+        // be double-counted.
+        $totalConversations = max($existingTotal, count($conversations));
 
         $data = [
             'exported_at' => date('Y-m-d\\TH:i:sP'),
