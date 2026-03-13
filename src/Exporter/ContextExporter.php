@@ -242,54 +242,98 @@ final class ContextExporter
             ];
         }
 
-        // Load and merge with any existing index
-        $existingStats = [];
-        if (is_file($path)) {
-            $fh = fopen($path, 'r');
-            if ($fh === false) {
-                $contents = '{}';
-            } else {
-                flock($fh, LOCK_SH);
-                $contents = stream_get_contents($fh);
-                flock($fh, LOCK_UN);
-                fclose($fh);
-
-                if ($contents === false) {
-                    $contents = '{}';
-                }
-            }
-
-            try {
-                $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
-                if (is_array($existing)) {
-                    $existingStats = is_array($existing['categories'] ?? null)
-                        ? $existing['categories']
-                        : [];
-                }
-            } catch (\JsonException) {
-                // Treat a corrupted index as empty; this run will rebuild stats only for the exported categories
-                $existingStats = [];
-            }
+        // Use a dedicated lock file to serialise the read→merge→write sequence.
+        // Without this, two overlapping export runs can both read the same old index,
+        // compute independent merges, and the last rename() wins—silently losing the other's updates.
+        $lockPath = $path . '.lock';
+        $lockHandle = fopen($lockPath, 'c');
+        if ($lockHandle === false) {
+            throw new \RuntimeException(sprintf('Unable to open lock file for index: %s', $lockPath));
         }
 
-        // Existing slugs not in this run are preserved; current run overwrites its own slugs
-        $mergedStats = array_merge($existingStats, $newStats);
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new \RuntimeException(sprintf('Unable to acquire exclusive lock for index: %s', $path));
+        }
 
-        // Total conversations is the number of unique conversations in this export run.
-        // Never derive from array_sum of category counts — multi-category conversations would
-        // be double-counted.
-        $totalConversations = count($conversations);
+        try {
+            // Load and merge with any existing index
+            $existingStats = [];
+            if (is_file($path)) {
+                $fh = fopen($path, 'r');
+                if ($fh === false) {
+                    $contents = '{}';
+                } else {
+                    $contents = stream_get_contents($fh);
+                    fclose($fh);
+                    if ($contents === false) {
+                        $contents = '{}';
+                    }
+                }
 
-        $data = [
-            'exported_at' => date('Y-m-d\TH:i:sP'),
-            'total_conversations' => $totalConversations,
-            'categories' => $mergedStats,
-        ];
+                try {
+                    $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+                    if (is_array($existing)) {
+                        $existingStats = is_array($existing['categories'] ?? null)
+                            ? $existing['categories']
+                            : [];
+                    }
+                } catch (\JsonException) {
+                    // Treat a corrupted index as empty; this run will rebuild stats only for the exported categories
+                    $existingStats = [];
+                }
+            }
 
-        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        $tempPath = $path . '.' . uniqid('tmp', true);
+            // Existing slugs not in this run are preserved; current run overwrites its own slugs
+            $mergedStats = array_merge($existingStats, $newStats);
 
-        file_put_contents($tempPath, $json, LOCK_EX);
-        rename($tempPath, $path);
+            // Total conversations is the number of unique conversations in this export run.
+            // Never derive from array_sum of category counts — multi-category conversations would
+            // be double-counted.
+            $totalConversations = count($conversations);
+
+            $data = [
+                'exported_at' => date('Y-m-d\TH:i:sP'),
+                'total_conversations' => $totalConversations,
+                'categories' => $mergedStats,
+            ];
+
+            $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+            // tempnam() ensures the temp file is created on the same filesystem as $path,
+            // which is required for rename() to be atomic.
+            $tempPath = tempnam(dirname($path), 'ctxidx_');
+            if ($tempPath === false) {
+                $tempPath = $path . '.' . uniqid('tmp', true);
+            }
+
+            $bytesWritten = file_put_contents($tempPath, $json, LOCK_EX);
+            if ($bytesWritten === false) {
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Failed to write index to temporary file "%s".',
+                    $tempPath,
+                ));
+            }
+
+            // Explicitly remove the destination before renaming for cross-platform safety.
+            // POSIX rename() is atomic and handles an existing destination, but on Windows
+            // it fails if the target file exists.
+            if (is_file($path)) {
+                @unlink($path);
+            }
+
+            if (!rename($tempPath, $path)) {
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Failed to replace index file "%s" with temporary file "%s".',
+                    $path,
+                    $tempPath,
+                ));
+            }
+        } finally {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
+        }
     }
 }
