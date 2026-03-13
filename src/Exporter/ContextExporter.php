@@ -287,10 +287,19 @@ final class ContextExporter
             // Existing slugs not in this run are preserved; current run overwrites its own slugs
             $mergedStats = array_merge($existingStats, $newStats);
 
-            // Total conversations is the number of unique conversations in this export run.
-            // Never derive from array_sum of category counts — multi-category conversations would
-            // be double-counted.
-            $totalConversations = count($conversations);
+            // Count unique conversations that belong to at least one of the exported
+            // categories. count($conversations) would over-report on a filtered
+            // (--category) run because the caller always passes the full categorised
+            // set; conversations outside the exported slugs must not be counted here.
+            $exportedIds = [];
+            foreach ($categories as $cat) {
+                foreach ($conversations as $conv) {
+                    if (in_array($cat['slug'], $conv->categories, true)) {
+                        $exportedIds[$conv->id] = true;
+                    }
+                }
+            }
+            $totalConversations = count($exportedIds);
 
             $data = [
                 'exported_at' => date('Y-m-d\TH:i:sP'),
