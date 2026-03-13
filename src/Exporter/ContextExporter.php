@@ -321,6 +321,12 @@ final class ContextExporter
                 ));
             }
 
+            // tempnam() creates files with restrictive permissions (typically 0600).
+            // Apply the existing index's mode (or a sensible default) so that
+            // index.json has consistent permissions with the other exported files.
+            $mode = is_file($path) ? (fileperms($path) & 0777) : 0644;
+            @chmod($tempPath, $mode);
+
             // First try a direct atomic rename. On POSIX, this atomically replaces any
             // existing destination. On Windows, this will fail if the destination exists.
             if (!@rename($tempPath, $path)) {
