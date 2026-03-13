@@ -258,7 +258,7 @@ final class ContextExporter
                         : [];
                 }
             } catch (\JsonException) {
-                // Treat a corrupted index as empty; the export will rebuild from scratch
+                // Treat a corrupted index as empty; this run will rebuild stats only for the exported categories
                 $existingStats = [];
             }
         }
@@ -277,6 +277,10 @@ final class ContextExporter
             'categories' => $mergedStats,
         ];
 
-        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $tempPath = $path . '.' . uniqid('tmp', true);
+
+        file_put_contents($tempPath, $json, LOCK_EX);
+        rename($tempPath, $path);
     }
 }
