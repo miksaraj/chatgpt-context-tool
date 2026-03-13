@@ -353,16 +353,21 @@ final class ContextExporter
                     }
                 }
             }
-            if (!chmod($tempPath, $mode)) {
+            $isWindowsForChmod = (DIRECTORY_SEPARATOR === '\\');
+            // On Windows (and some filesystems), chmod with Unix-style modes may be
+            // unsupported or a no-op. Treat chmod as best-effort so index generation
+            // can still succeed even if permissions cannot be adjusted.
+            if (!$isWindowsForChmod && !@chmod($tempPath, $mode)) {
                 $error = error_get_last();
                 $errorMessage = $error['message'] ?? 'unknown error';
-                @unlink($tempPath);
-                throw new \RuntimeException(sprintf(
+                // Log a warning but continue with the export; the file contents are
+                // still valid even if the mode could not be changed.
+                @trigger_error(sprintf(
                     'Failed to change permissions on temporary index file "%s" to mode %o: %s',
                     $tempPath,
                     $mode,
                     $errorMessage,
-                ));
+                ), E_USER_WARNING);
             }
 
             // First try a direct atomic rename. On POSIX, this atomically replaces any
