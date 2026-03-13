@@ -253,7 +253,7 @@ final class ContextExporter
 
         if (!flock($lockHandle, LOCK_EX)) {
             fclose($lockHandle);
-            throw new \RuntimeException(sprintf('Unable to acquire exclusive lock for index: %s', $path));
+            throw new \RuntimeException(sprintf('Unable to acquire exclusive lock for index: %s', $lockPath));
         }
 
         try {
@@ -344,11 +344,22 @@ final class ContextExporter
                     }
                 }
             }
-            @chmod($tempPath, $mode);
+            if (!chmod($tempPath, $mode)) {
+                $error = error_get_last();
+                $errorMessage = $error['message'] ?? 'unknown error';
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Failed to change permissions on temporary index file "%s" to mode %o: %s',
+                    $tempPath,
+                    $mode,
+                    $errorMessage,
+                ));
+            }
 
             // First try a direct atomic rename. On POSIX, this atomically replaces any
             // existing destination. On Windows, this will fail if the destination exists.
-            if (!@rename($tempPath, $path)) {
+            if (!rename($tempPath, $path)) {
+                $initialRenameError = error_get_last();
                 // Windows-specific fallback: if the destination exists, rename it to a
                 // backup, then move the temp file into place, and finally clean up the
                 // backup. This keeps the window where the index is missing as small as
@@ -358,23 +369,29 @@ final class ContextExporter
                 if ($isWindows && is_file($path)) {
                     $backupPath = $path . '.bak.' . uniqid('', true);
 
-                    if (!@rename($path, $backupPath)) {
+                    if (!rename($path, $backupPath)) {
+                        $error = error_get_last();
+                        $errorMessage = $error['message'] ?? 'unknown error';
                         @unlink($tempPath);
                         throw new \RuntimeException(sprintf(
-                            'Failed to move existing index file "%s" to backup "%s".',
+                            'Failed to move existing index file "%s" to backup "%s": %s',
                             $path,
                             $backupPath,
+                            $errorMessage,
                         ));
                     }
 
-                    if (!@rename($tempPath, $path)) {
+                    if (!rename($tempPath, $path)) {
+                        $error = error_get_last();
+                        $errorMessage = $error['message'] ?? 'unknown error';
                         // Attempt best-effort restore of the original file.
                         @rename($backupPath, $path);
                         @unlink($tempPath);
                         throw new \RuntimeException(sprintf(
-                            'Failed to replace index file "%s" with temporary file "%s" after backup.',
+                            'Failed to replace index file "%s" with temporary file "%s" after backup: %s',
                             $path,
                             $tempPath,
+                            $errorMessage,
                         ));
                     }
 
@@ -382,10 +399,12 @@ final class ContextExporter
                     @unlink($backupPath);
                 } else {
                     @unlink($tempPath);
+                    $errorMessage = $initialRenameError['message'] ?? 'unknown error';
                     throw new \RuntimeException(sprintf(
-                        'Failed to replace index file "%s" with temporary file "%s".',
+                        'Failed to replace index file "%s" with temporary file "%s": %s',
                         $path,
                         $tempPath,
+                        $errorMessage,
                     ));
                 }
             }
