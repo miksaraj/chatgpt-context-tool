@@ -298,7 +298,12 @@ final class ContextExporter
                 'categories' => $mergedStats,
             ];
 
-            $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $flags = JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR;
+            if ($this->jsonIndent) {
+                $flags |= JSON_PRETTY_PRINT;
+            }
+
+            $json = json_encode($data, $flags);
 
             // tempnam() ensures the temp file is created on the same filesystem as $path,
             // which is required for rename() to be atomic.
@@ -316,20 +321,48 @@ final class ContextExporter
                 ));
             }
 
-            // Explicitly remove the destination before renaming for cross-platform safety.
-            // POSIX rename() is atomic and handles an existing destination, but on Windows
-            // it fails if the target file exists.
-            if (is_file($path)) {
-                @unlink($path);
-            }
+            // First try a direct atomic rename. On POSIX, this atomically replaces any
+            // existing destination. On Windows, this will fail if the destination exists.
+            if (!@rename($tempPath, $path)) {
+                // Windows-specific fallback: if the destination exists, rename it to a
+                // backup, then move the temp file into place, and finally clean up the
+                // backup. This keeps the window where the index is missing as small as
+                // possible while avoiding a pre-rename unlink.
+                $isWindows = (DIRECTORY_SEPARATOR === '\\');
 
-            if (!rename($tempPath, $path)) {
-                @unlink($tempPath);
-                throw new \RuntimeException(sprintf(
-                    'Failed to replace index file "%s" with temporary file "%s".',
-                    $path,
-                    $tempPath,
-                ));
+                if ($isWindows && is_file($path)) {
+                    $backupPath = $path . '.bak.' . uniqid('', true);
+
+                    if (!@rename($path, $backupPath)) {
+                        @unlink($tempPath);
+                        throw new \RuntimeException(sprintf(
+                            'Failed to move existing index file "%s" to backup "%s".',
+                            $path,
+                            $backupPath,
+                        ));
+                    }
+
+                    if (!@rename($tempPath, $path)) {
+                        // Attempt best-effort restore of the original file.
+                        @rename($backupPath, $path);
+                        @unlink($tempPath);
+                        throw new \RuntimeException(sprintf(
+                            'Failed to replace index file "%s" with temporary file "%s" after backup.',
+                            $path,
+                            $tempPath,
+                        ));
+                    }
+
+                    // New index in place; remove the backup.
+                    @unlink($backupPath);
+                } else {
+                    @unlink($tempPath);
+                    throw new \RuntimeException(sprintf(
+                        'Failed to replace index file "%s" with temporary file "%s".',
+                        $path,
+                        $tempPath,
+                    ));
+                }
             }
         } finally {
             flock($lockHandle, LOCK_UN);
