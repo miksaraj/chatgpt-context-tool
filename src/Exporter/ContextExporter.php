@@ -321,10 +321,29 @@ final class ContextExporter
                 ));
             }
 
+            if ($bytesWritten !== strlen($json)) {
+                @unlink($tempPath);
+                throw new \RuntimeException(sprintf(
+                    'Short write when writing index to temporary file "%s" (wrote %d of %d bytes).',
+                    $tempPath,
+                    $bytesWritten,
+                    strlen($json),
+                ));
+            }
+
             // tempnam() creates files with restrictive permissions (typically 0600).
             // Apply the existing index's mode (or a sensible default) so that
             // index.json has consistent permissions with the other exported files.
-            $mode = is_file($path) ? (fileperms($path) & 0777) : 0644;
+            $mode = 0644;
+            if (is_file($path)) {
+                $perms = @fileperms($path);
+                if ($perms !== false) {
+                    $candidateMode = ($perms & 0777);
+                    if ($candidateMode !== 0) {
+                        $mode = $candidateMode;
+                    }
+                }
+            }
             @chmod($tempPath, $mode);
 
             // First try a direct atomic rename. On POSIX, this atomically replaces any
