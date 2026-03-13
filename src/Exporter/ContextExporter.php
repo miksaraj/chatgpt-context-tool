@@ -244,7 +244,6 @@ final class ContextExporter
 
         // Load and merge with any existing index
         $existingStats = [];
-        $existingTotal = 0;
         if (is_file($path)) {
             $contents = file_get_contents($path);
             if ($contents === false) {
@@ -254,7 +253,6 @@ final class ContextExporter
             try {
                 $existing = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
                 if (is_array($existing)) {
-                    $existingTotal = (int) ($existing['total_conversations'] ?? 0);
                     $existingStats = is_array($existing['categories'] ?? null)
                         ? $existing['categories']
                         : [];
@@ -268,13 +266,13 @@ final class ContextExporter
         // Existing slugs not in this run are preserved; current run overwrites its own slugs
         $mergedStats = array_merge($existingStats, $newStats);
 
-        // Use the larger of the existing stored total and this run's unique conversation count.
+        // Total conversations is the number of unique conversations in this export run.
         // Never derive from array_sum of category counts — multi-category conversations would
         // be double-counted.
-        $totalConversations = max($existingTotal, count($conversations));
+        $totalConversations = count($conversations);
 
         $data = [
-            'exported_at' => date('Y-m-d\\TH:i:sP'),
+            'exported_at' => date('Y-m-d\TH:i:sP'),
             'total_conversations' => $totalConversations,
             'categories' => $mergedStats,
         ];
