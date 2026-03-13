@@ -245,9 +245,18 @@ final class ContextExporter
         // Load and merge with any existing index
         $existingStats = [];
         if (is_file($path)) {
-            $contents = file_get_contents($path);
-            if ($contents === false) {
+            $fh = fopen($path, 'r');
+            if ($fh === false) {
                 $contents = '{}';
+            } else {
+                flock($fh, LOCK_SH);
+                $contents = stream_get_contents($fh);
+                flock($fh, LOCK_UN);
+                fclose($fh);
+
+                if ($contents === false) {
+                    $contents = '{}';
+                }
             }
 
             try {
