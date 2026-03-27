@@ -48,6 +48,43 @@ final class Conversation
      * Build a condensed text representation for LLM analysis.
      * Truncates to $maxChars to stay within context windows.
      */
+    /**
+     * Render the full conversation as a human-readable Markdown document.
+     * Unlike toCondensedText() this method does NOT truncate any content.
+     */
+    public function toMarkdown(): string
+    {
+        $lines = [];
+
+        $lines[] = "# {$this->title}";
+        $lines[] = '';
+        $lines[] = '_Created: ' . date('d M Y H:i', (int) $this->createTime) . '_';
+        $lines[] = '';
+        $lines[] = '---';
+        $lines[] = '';
+
+        foreach ($this->messages as $msg) {
+            if ($msg->content === '') {
+                continue;
+            }
+
+            $roleHeading = $msg->role === 'user' ? '### 🧑 User' : '### 🤖 Assistant';
+            $lines[] = $roleHeading;
+
+            if ($msg->timestamp > 0) {
+                $lines[] = '_' . date('d M Y H:i', (int) $msg->timestamp) . '_';
+            }
+
+            $lines[] = '';
+            $lines[] = $msg->content;
+            $lines[] = '';
+            $lines[] = '---';
+            $lines[] = '';
+        }
+
+        return implode("\n", $lines);
+    }
+
     public function toCondensedText(int $maxChars = 8000): string
     {
         $parts = ["# {$this->title}\n"];

@@ -15,11 +15,13 @@ use ChatGPTContext\Command\ExploreCommand;
 use ChatGPTContext\Command\ReviewCommand;
 use ChatGPTContext\Command\ExportCommand;
 use ChatGPTContext\Command\StatsCommand;
+use ChatGPTContext\Command\TranscribeCommand;
 use Symfony\Component\Console\Application;
 
-$app = new Application('ChatGPT Context Tool', '1.0.1');
+$app = new Application('ChatGPT Context Tool', '1.1.0');
 
 $app->add(new ParseCommand());
+$app->add(new TranscribeCommand());
 $app->add(new ExploreCommand());
 $app->add(new CategoriseCommand());
 $app->add(new ReviewCommand());

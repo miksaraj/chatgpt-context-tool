@@ -67,6 +67,8 @@ Override at runtime: `./bin/ctx categorise conversations.json -m qwen3`
 
 The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → stats**
 
+The `transcribe` command is a standalone utility (no prior workflow steps needed) for exporting any single conversation to a readable Markdown file.
+
 > **Tip:** Every command that takes a conversations export accepts either a single `conversations.json` file **or** a directory path — when a directory is given, all `*.json` files inside are merged and deduplicated automatically. The examples throughout this section show both forms interchangeably.
 
 ### 1. Parse the export
@@ -213,6 +215,20 @@ All changes within a single conversation are accumulated and written once when y
 ./bin/ctx stats input/
 ```
 
+### Transcribe a single conversation
+
+Export any conversation to a self-contained Markdown file — no prior categorisation or indexing required:
+
+```bash
+./bin/ctx transcribe /path/to/conversations.json --conv <conversation-id>
+./bin/ctx transcribe input/ -c <conversation-id>
+
+# Write to a custom output directory
+./bin/ctx transcribe input/ -c <conversation-id> -o /tmp/transcripts
+```
+
+The conversation ID can be copied from `output/parsed-index.json`. The file is written to `<output>/conversations/<title>.md`, with the title sanitised for use as a filename.
+
 ## Output Structure
 
 ```
@@ -221,6 +237,8 @@ output/
 ├── parsed-index.json             # Raw parse results
 ├── category-discovery.json       # Explore results (discovered categories)
 ├── .ctx-state.json               # Processing state (for resume)
+├── conversations/                # Transcribed conversations (transcribe command)
+│   └── <title>.md
 ├── software-dev.json             # Category: JSON format
 ├── software-dev.md               # Category: Markdown for review
 ├── creative-writing.json
