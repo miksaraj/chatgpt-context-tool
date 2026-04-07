@@ -65,7 +65,7 @@ Override at runtime: `./bin/ctx categorise conversations.json -m qwen3`
 
 ## Workflow
 
-The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → stats**
+The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → enhance → stats**
 
 The `transcribe` command is a standalone utility (no prior workflow steps needed) for exporting any single conversation to a readable Markdown file.
 
@@ -208,6 +208,46 @@ All changes within a single conversation are accumulated and written once when y
 ./bin/ctx export /path/to/conversations.json --context-package --min-relevance 0.5 -c software-dev
 ```
 
+### 5.5 Enhance (deep-summarise)
+
+The `enhance` command runs a multi-pass LLM pipeline over categorised conversations and produces richer context packages than the standard export:
+
+1. **Pass 1** — Produces a one-liner summary for every User/Assistant exchange (full message content, batched 3 pairs at a time)
+2. **Pass 2** — Flags message-pair ranges that deserve a deeper look (decisions, pivots, dense back-and-forths) — criteria are entirely LLM-driven
+3. **Pass 3** — Expands each flagged range into a detailed paragraph summary
+4. **State proposal** — Proposes improved `summary`, `key_facts`, and `tags` for each conversation; you accept or skip each group interactively
+5. **Export** — Writes an `enhanced-context-{slug}.md` file per category
+
+```bash
+# Enhance all categories
+./bin/ctx enhance input/
+
+# Enhance a single category
+./bin/ctx enhance input/ --category software-dev
+
+# Auto-accept all proposed state updates (no interactive prompts)
+./bin/ctx enhance input/ --yes
+
+# Skip the interactive state-update step (just analyse and export)
+./bin/ctx enhance input/ --skip-state-update
+
+# Re-process conversations that have already been enhanced
+./bin/ctx enhance input/ --category software-dev --reset
+
+# Adjust message-pair batch size (lower = more LLM calls, but safer for long messages)
+./bin/ctx enhance input/ --batch-size 2
+
+# Tune token budget for reasoning models
+./bin/ctx enhance input/ --max-tokens 8192
+```
+
+**Interactive state updates** — for each conversation where the LLM suggests improvements, you are presented with a diff and two separate `y/N` prompts (default: `N = skip`):
+
+- **Update summary / key_facts?** — replaces the conversation's current summary and key facts in `.ctx-state.json`
+- **Update tags?** — independently replace the conversation's tags
+
+Enhanced conversations are cached in `.ctx-state.json`. Re-running without `--reset` skips already-enhanced conversations.
+
 ### 6. View statistics
 
 ```bash
@@ -233,30 +273,41 @@ The conversation ID can be copied from `output/parsed-index.json`. The file is w
 
 ```
 output/
-├── index.json                    # Master index with category stats
-├── parsed-index.json             # Raw parse results
-├── category-discovery.json       # Explore results (discovered categories)
-├── .ctx-state.json               # Processing state (for resume)
-├── conversations/                # Transcribed conversations (transcribe command)
+├── index.json                       # Master index with category stats
+├── parsed-index.json                # Raw parse results
+├── category-discovery.json          # Explore results (discovered categories)
+├── .ctx-state.json                  # Processing state (categorised + enhanced data)
+├── conversations/                   # Transcribed conversations (transcribe command)
 │   └── <title>.md
-├── software-dev.json             # Category: JSON format
-├── software-dev.md               # Category: Markdown for review
+├── software-dev.json                # Category: JSON format
+├── software-dev.md                  # Category: Markdown for review
 ├── creative-writing.json
 ├── creative-writing.md
-├── context-software-dev.md       # LLM context package (--context-package)
+├── context-software-dev.md          # LLM context package (--context-package)
+├── enhanced-context-software-dev.md # Enhanced context package (enhance command)
 └── ...
 ```
 
 ### Context Packages
 
-The `--context-package` flag generates markdown files optimised for pasting into an LLM conversation. These contain:
+The `--context-package` flag on the `export` command generates markdown files optimised for pasting into an LLM conversation. These contain:
 
 - Conversation summaries sorted by relevance
 - Key facts and decisions extracted from each conversation
 - Tags for quick scanning
 - No raw message content (just the distilled context)
 
-These are designed to be reviewed by you, corrected if needed, and then fed to Claude as context for continuity.
+These are designed to be reviewed by you, corrected if needed, and then fed to Claude (or any other assistant) as context for continuity.
+
+### Enhanced Context Packages
+
+The `enhance` command produces `enhanced-context-{slug}.md` files — a richer format that adds:
+
+- A **conversation digest**: one-liner summary per User/Assistant exchange, giving you a scannable map of what was covered
+- **Deep-dive sections**: detailed paragraph summaries for the exchanges the LLM flagged as high-value (decisions, pivots, dense technical discussions)
+- The conversation's enhanced or original `summary` and `key_facts` at the top
+
+Because the enhanced data is derived from the full message content (no truncation), these packages are significantly more detailed than standard context packages and better suited for conversations where important decisions appear late in a long exchange.
 
 ## Categories
 

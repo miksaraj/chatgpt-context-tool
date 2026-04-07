@@ -14,6 +14,7 @@ use ChatGPTContext\Command\CategoriseCommand;
 use ChatGPTContext\Command\ExploreCommand;
 use ChatGPTContext\Command\ReviewCommand;
 use ChatGPTContext\Command\ExportCommand;
+use ChatGPTContext\Command\EnhanceCommand;
 use ChatGPTContext\Command\StatsCommand;
 use ChatGPTContext\Command\TranscribeCommand;
 use Symfony\Component\Console\Application;
@@ -26,6 +27,7 @@ $app->add(new ExploreCommand());
 $app->add(new CategoriseCommand());
 $app->add(new ReviewCommand());
 $app->add(new ExportCommand());
+$app->add(new EnhanceCommand());
 $app->add(new StatsCommand());
 
 $app->run();
