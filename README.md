@@ -65,7 +65,7 @@ Override at runtime: `./bin/ctx categorise conversations.json -m qwen3`
 
 ## Workflow
 
-The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → enhance → stats**
+The recommended workflow is: **parse → explore → (adjust config) → categorise → review → export → enhance → ask → stats**
 
 The `transcribe` command is a standalone utility (no prior workflow steps needed) for exporting any single conversation to a readable Markdown file.
 
@@ -248,7 +248,46 @@ The `enhance` command runs a multi-pass LLM pipeline over categorised conversati
 
 Enhanced conversations are cached in `.ctx-state.json`. Re-running without `--reset` skips already-enhanced conversations.
 
-### 6. View statistics
+### 6. Ask questions
+
+The `ask` command lets you query your conversation corpus in plain English using Ollama. It works with full conversation text — not summaries — batching conversations through the LLM and synthesising the partial answers into a final consolidated response.
+
+```bash
+# Ask across all categorised conversations (state must exist)
+./bin/ctx ask "What decisions did I make about the architecture?"
+
+# Pass the export file to get full message content (recommended for best answers)
+./bin/ctx ask "What decisions did I make about the architecture?" input/
+
+# Restrict to a specific category
+./bin/ctx ask "Which testing strategies did we discuss?" input/ -c software-dev
+
+# Restrict to one or more specific conversations (ID from parsed-index.json)
+./bin/ctx ask "What was the final approach?" input/ --conv 68f10039-e010-832b-9a54-63eccdae57c3
+./bin/ctx ask "What was the final approach?" input/ --conv abc123 --conv def456
+./bin/ctx ask "What was the final approach?" input/ --conv abc123,def456
+
+# Save the answer to a Markdown file (also prints to terminal)
+./bin/ctx ask "Summarise the key decisions" input/ -c software-dev --save
+
+# Adjust batch size (more conversations per LLM call; higher memory/context pressure)
+./bin/ctx ask "What tools did I end up using?" input/ --batch-size 5
+
+# Debug: print each batch prompt before sending
+./bin/ctx ask "What did I discuss about Rust embedded?" input/ --debug
+```
+
+**How it works:**
+1. Resolves the conversation pool (all, by category, or by ID) and sorts by relevance score if state exists
+2. Splits conversations into batches of `--batch-size` (default: 3)
+3. For each batch, sends the **full** conversation Markdown (`toMarkdown()`) and the question to Ollama — gets a partial answer
+4. If more than one batch, a final **synthesis pass** collapses all partial answers into a single coherent response
+5. Prints the answer to the terminal with a **Sources** section listing the conversations used
+6. With `--save`, writes the answer to `output/<category>-answer-<timestamp>.md`
+
+**No input file?** If `categorise` has already run, the command can work from state alone (no export needed) — answering from LLM-generated summaries and key facts rather than full message text. Passing the original export file is always recommended for the richest context.
+
+### 7. View statistics
 
 ```bash
 ./bin/ctx stats /path/to/conversations.json
@@ -285,6 +324,7 @@ output/
 ├── creative-writing.md
 ├── context-software-dev.md          # LLM context package (--context-package)
 ├── enhanced-context-software-dev.md # Enhanced context package (enhance command)
+├── software-dev-answer-2025-01-01_12-00-00.md  # Saved ask answer (--save)
 └── ...
 ```
 

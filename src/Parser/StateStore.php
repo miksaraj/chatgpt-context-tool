@@ -65,6 +65,16 @@ final class StateStore
     }
 
     /**
+     * Return all stored categorisation entries, keyed by conversation ID.
+     *
+     * @return array<string, array>
+     */
+    public function getAllCategorisations(): array
+    {
+        return $this->state['categorised'] ?? [];
+    }
+
+    /**
      * Get count of categorised conversations.
      */
     public function categorisedCount(): int
