@@ -123,8 +123,9 @@ final class ExploreCommand extends Command
 			return Command::FAILURE;
 		}
 
-		$conversations = array_filter($conversations, fn($c) => $c->messageCount() >= $minMessages);
-		$conversations = array_values($conversations);
+		$conversations = $conversations
+			|> (fn($c) => array_filter($c, fn($c) => $c->messageCount() >= $minMessages))
+			|> array_values(...);
 
 		$io->text(sprintf('Loaded %d conversations (after min-message filter)', count($conversations)));
 
@@ -546,13 +547,18 @@ SYSTEM;
 	/** @return array<string> */
 	private function generateKeywords(array $suggestion): array
 	{
-		$words     = preg_split('/[\s\-_]+/', mb_strtolower($suggestion['name']));
 		$stopWords = ['and', 'the', 'of', 'in', 'for', 'a', 'an', 'to', 'with', '&', '/'];
-		$keywords  = array_filter($words, fn($w) => !in_array($w, $stopWords, true) && mb_strlen($w) > 2);
 
-		$slugParts = explode('-', $suggestion['slug']);
-		$keywords  = array_merge($keywords, array_filter($slugParts, fn($w) => mb_strlen($w) > 2));
+		$nameWords = $suggestion['name']
+			|> mb_strtolower(...)
+			|> (fn($s) => preg_split('/[\s\-_]+/', $s))
+			|> (fn($w) => array_filter($w, fn($w) => !in_array($w, $stopWords, true) && mb_strlen($w) > 2));
 
-		return array_values(array_unique($keywords));
+		$slugWords = explode('-', $suggestion['slug'])
+			|> (fn($w) => array_filter($w, fn($w) => mb_strlen($w) > 2));
+
+		return array_merge($nameWords, $slugWords)
+			|> array_unique(...)
+			|> array_values(...);
 	}
 }

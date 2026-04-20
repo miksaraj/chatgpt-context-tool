@@ -7,7 +7,7 @@ CLI tool to parse, categorise, and package ChatGPT exports for LLM context consu
 
 ## Requirements
 
-- PHP 8.4+ (tested on PHP 8.5)
+- PHP 8.5+
 - Composer
 - Ollama (optional but recommended for semantic categorisation)
 

@@ -20,7 +20,7 @@ use ChatGPTContext\Command\TranscribeCommand;
 use ChatGPTContext\Command\AskCommand;
 use Symfony\Component\Console\Application;
 
-$app = new Application('ChatGPT Context Tool', '1.3.0');
+$app = new Application('ChatGPT Context Tool', '1.4.0');
 
 $app->add(new ParseCommand());
 $app->add(new TranscribeCommand());

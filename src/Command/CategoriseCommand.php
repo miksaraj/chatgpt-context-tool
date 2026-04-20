@@ -71,8 +71,9 @@ final class CategoriseCommand extends Command
             return Command::FAILURE;
         }
 
-        $conversations = array_filter($conversations, fn($c) => $c->messageCount() >= $minMessages);
-        $conversations = array_values($conversations);
+        $conversations = $conversations
+            |> (fn($c) => array_filter($c, fn($c) => $c->messageCount() >= $minMessages))
+            |> array_values(...);
         $io->text(sprintf('Loaded %d conversations', count($conversations)));
 
         if ($limit !== null) {

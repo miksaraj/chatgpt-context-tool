@@ -85,11 +85,11 @@ PROMPT;
         try {
             $response = $this->ollama->generate($prompt, $system);
 
-            // Strip any markdown fences or thinking tags that models like deepseek-r1 emit
-            $response = preg_replace('/^```(?:json)?\s*/m', '', $response);
-            $response = preg_replace('/```\s*$/m', '', $response);
-            $response = preg_replace('/<think>.*?<\/think>/s', '', $response);
-            $response = trim($response);
+            $response = $response
+                |> (fn($r) => preg_replace('/^```(?:json)?\s*/m', '', $r) ?? $r)
+                |> (fn($r) => preg_replace('/```\s*$/m', '', $r) ?? $r)
+                |> (fn($r) => preg_replace('/<think>.*?<\/think>/s', '', $r) ?? $r)
+                |> trim(...);
 
             $result = json_decode(LlmResponse::extractJson($response), true, 512, JSON_THROW_ON_ERROR);
 
@@ -173,8 +173,10 @@ PROMPT;
     {
         $validSlugs = array_column($this->categories, 'slug');
 
-        $validated = array_filter($slugs, fn(string $s) => in_array($s, $validSlugs, true));
+        $validated = $slugs
+            |> (fn($s) => array_filter($s, fn(string $slug) => in_array($slug, $validSlugs, true)))
+            |> array_values(...);
 
-        return empty($validated) ? ['other'] : array_values($validated);
+        return empty($validated) ? ['other'] : $validated;
     }
 }

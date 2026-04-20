@@ -411,9 +411,10 @@ PROMPT;
      */
     private function stripBoilerplate(string $raw): string
     {
-        $raw = preg_replace('/^```(?:json)?\s*/m', '', $raw) ?? $raw;
-        $raw = preg_replace('/```\s*$/m', '',            $raw) ?? $raw;
-        $raw = preg_replace('/<think>.*?<\/think>/s', '', $raw) ?? $raw;
-        return trim($raw);
+        return $raw
+            |> (fn($r) => preg_replace('/^```(?:json)?\s*/m', '', $r) ?? $r)
+            |> (fn($r) => preg_replace('/```\s*$/m', '',            $r) ?? $r)
+            |> (fn($r) => preg_replace('/<think>.*?<\/think>/s', '', $r) ?? $r)
+            |> trim(...);
     }
 }

@@ -37,8 +37,9 @@ final class StatsCommand extends Command
         $parser = new ChatGPTExportParser();
         $conversations = $parser->parseFromPath($filePath);
         $allCount = count($conversations);
-        $conversations = array_filter($conversations, fn($c) => $c->messageCount() >= $minMessages);
-        $conversations = array_values($conversations);
+        $conversations = $conversations
+            |> (fn($c) => array_filter($c, fn($c) => $c->messageCount() >= $minMessages))
+            |> array_values(...);
 
         $state = new StateStore($outputDir);
 
@@ -97,7 +98,8 @@ final class StatsCommand extends Command
             );
 
             // Relevance distribution
-            $allScores = array_filter(array_map(fn($c) => $c->relevanceScore, $conversations), fn($s) => $s > 0);
+            $allScores = array_map(fn($c) => $c->relevanceScore, $conversations)
+                |> (fn($s) => array_filter($s, fn($s) => $s > 0));
             if (!empty($allScores)) {
                 $buckets = [
                     '0.0-0.2' => 0, '0.2-0.4' => 0, '0.4-0.6' => 0,

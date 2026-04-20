@@ -101,11 +101,9 @@ final class TranscribeCommand extends Command
      */
     private function sanitiseFilename(string $title): string
     {
-        // Replace non-alphanumeric (except spaces and hyphens) with nothing
-        $safe = preg_replace('/[^\w\s\-]/u', '', $title) ?? '';
-        // Collapse whitespace to underscores
-        $safe = preg_replace('/\s+/', '_', trim($safe)) ?? '';
-        // Truncate to keep filenames sane
-        return mb_substr($safe, 0, 80);
+        return $title
+            |> (fn($s) => preg_replace('/[^\w\s\-]/u', '', $s) ?? '')
+            |> (fn($s) => preg_replace('/\s+/', '_', trim($s)) ?? '')
+            |> (fn($s) => mb_substr($s, 0, 80));
     }
 }

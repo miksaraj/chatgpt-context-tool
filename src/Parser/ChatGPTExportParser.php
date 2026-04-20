@@ -206,8 +206,10 @@ final class ChatGPTExportParser
 
         if ($contentType === 'text') {
             $parts = $content['parts'] ?? [];
-            $textParts = array_filter($parts, 'is_string');
-            return trim(implode("\n", $textParts));
+            return $parts
+                |> (fn($p) => array_filter($p, 'is_string'))
+                |> (fn($p) => implode("\n", $p))
+                |> trim(...);
         }
 
         if ($contentType === 'multimodal_text') {
